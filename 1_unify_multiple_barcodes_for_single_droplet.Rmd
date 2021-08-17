@@ -1,0 +1,19 @@
+---
+title: "Unify multiple barcodes for single droplet"
+output: html_notebook
+---
+# bap2 post-processing of CellRanger BAM file
+
+```{bash}
+# python virtual environment
+source ~/bap2/bin/activate
+
+# data.table::fread uses tempdir to temporarily expand gzipped TSV files, which are large
+mkdir tmp
+export TMPDIR=`pwd`/tmp
+
+echo "0 1 2" > blacklist.bed
+
+bap2 bam -i outs/possorted_bam.bam -o bap2 -c 20 -bt CB -bf 1000 -bg ~/human/publicrat/rn7/rn7.chrom23.sizes -bl blacklist.bed -ts ~/human/publicrat/rn7/ncbiRefSeq.transcript.TSS.bed -mc chrM
+# -c 4 for m154211
+```
