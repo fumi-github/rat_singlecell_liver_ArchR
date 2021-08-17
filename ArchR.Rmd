@@ -1,0 +1,5344 @@
+---
+title: "ArchR"
+output: html_notebook
+---
+```{r}
+# For addClusters(algorithm = 4)
+reticulate::use_condaenv(
+  condaenv = "leidenalg_pip",
+  conda = "/usr/local/anaconda2/bin/conda",
+  required = TRUE)
+reticulate::py_config()
+reticulate::py_module_available("leidenalg")
+```
+
+```{r}
+Sys.setenv(HDF5_USE_FILE_LOCKING = "FALSE") # For ZFS
+library(ArchR)
+addArchRThreads(threads = 12)
+# addArchRChrPrefix(chrPrefix = FALSE) 
+```
+
+custom genome annotation
+
+```{r}
+createGenomeAnnotation <- function(
+  genome = NULL,
+  chromSizes = NULL,
+  blacklist = NULL,
+  filter = TRUE,
+  filterChr = c("chrM")
+  ){
+
+  ArchR:::.validInput(input = genome, name = "genome", valid = c("character", "bsgenome"))
+  ArchR:::.validInput(input = chromSizes, name = "chromSizes", valid = c("granges", "null"))
+  ArchR:::.validInput(input = blacklist, name = "blacklist", valid = c("granges", "null"))
+  ArchR:::.validInput(input = filter, name = "filter", valid = c("boolean"))
+  ArchR:::.validInput(input = filterChr, name = "filterChr", valid = c("character", "null"))
+
+  if(is.null(genome) | is.null(blacklist) | is.null(chromSizes)){
+
+    ##################
+    message("Getting genome..")
+    bsg <- validBSgenome(genome)
+    genome <- bsg@pkgname
+
+    ##################
+    message("Getting chromSizes..")
+    chromSizes <- GRanges(names(seqlengths(bsg)), IRanges(1, seqlengths(bsg)))
+    if(filter){
+        chromSizes <- filterChrGR(chromSizes, remove = filterChr)
+    }
+    seqlengths(chromSizes) <- end(chromSizes)
+
+    ##################
+    message("Getting blacklist..")
+    blacklist <- ArchR:::.getBlacklist(genome = bsg@metadata$genome)
+
+  }else{
+
+    bsg <- validBSgenome(genome)
+    genome <- bsg@pkgname
+    
+    chromSizes <- ArchR:::.validGRanges(chromSizes)
+    
+    blacklist <- ArchR:::.validGRanges(blacklist)
+
+  }
+
+  SimpleList(genome = genome, chromSizes = chromSizes, blacklist = blacklist)
+
+}
+
+```
+
+```{r}
+library(BSgenome.Rnorvegicus.UCSC.rn6)
+genomeAnnotation = createGenomeAnnotation(
+  genome = BSgenome.Rnorvegicus.UCSC.rn6)
+genomeAnnotation
+```
+
+custom gene annotation
+
+TEMPORARY. DON'T USE
+
+
+```{r}
+#' Create a gene annotation object for ArchR
+#' 
+#' This function will create a gene annotation object that can be used for creating ArrowFiles or an ArchRProject, etc.
+#' 
+#' @param genome A string that specifies the genome (ie "hg38", "hg19", "mm10", "mm9"). If `genome` is not supplied,
+#' `TxDb` and `OrgDb` are required. If genome is supplied, `TxDb` and `OrgDb` will be ignored.
+#' @param TxDb A `TxDb` object (transcript database) from Bioconductor which contains information for gene/transcript coordinates.
+#' For example, from `txdb <- TxDb.Hsapiens.UCSC.hg38.knownGene`.
+#' @param OrgDb An `OrgDb` object (organism database) from Bioconductor which contains information for gene/transcript symbols from ids.
+#' For example, from `orgdb <- org.Hs.eg.db`.
+#' @param genes A `GRanges` object containing gene coordinates (start to end). Must have a symbols column matching the symbols column of `exons`.
+#' @param exons A `GRanges` object containing gene exon coordinates. Must have a symbols column matching the symbols column of `genes`.
+#' @param TSS A `GRanges` object containing standed transcription start site coordinates for computing TSS enrichment scores downstream.
+#' @param annoStyle annotation style to map between gene names and various gene identifiers e.g. "ENTREZID", "ENSEMBL".
+#' @export
+createGeneAnnotation <- function(
+  genome = NULL,
+  TxDb = NULL,
+  OrgDb = NULL,
+  genes = NULL,
+  exons = NULL,
+  TSS = NULL,
+  annoStyle = NULL
+  ){
+
+  ArchR:::.validInput(input = genome, name = "genome", valid = c("character", "null"))
+  ArchR:::.validInput(input = TxDb, name = "TxDb", valid = c("txdb", "character", "null"))
+  ArchR:::.validInput(input = OrgDb, name = "OrgDb", valid = c("orgdb", "character", "null"))
+  ArchR:::.validInput(input = genes, name = "genes", valid = c("GRanges", "null"))
+  ArchR:::.validInput(input = exons, name = "exons", valid = c("GRanges", "null"))
+  ArchR:::.validInput(input = TSS, name = "TSS", valid = c("GRanges", "null"))
+  ArchR:::.validInput(input = annoStyle, name = "annoStyle", valid = c("character", "null"))
+
+  if(is.null(genes) | is.null(exons) | is.null(TSS)){
+
+    inGenes <- genes
+    inExons <- exons
+    inTSS <- TSS
+
+    ArchR:::.requirePackage("GenomicFeatures", source = "bioc")
+
+    if(is.null(genome)) {
+      if (is.null(TxDb) | is.null(OrgDb)) {
+          stop("If no provided genome then you need TxDb and OrgDb!")
+      }
+    }
+
+    if(!is.null(genome)){
+      TxDb <- ArchR:::.getTxDb(genome)
+      OrgDb <- ArchR:::.getOrgDb(genome)
+    }
+
+    ###########################
+    message("Getting Genes..")
+    # 2021.06.03 Fumi
+    #genes <- GenomicFeatures::genes(TxDb)
+    genes <- GenomicFeatures::genes(TxDb, single.strand.genes.only=FALSE)
+    genes = unlist(genes)
+    genes$gene_id = names(genes)
+    genes = genes[! duplicated(genes$gene_id)]
+
+    if(is.null(annoStyle)){
+      isEntrez <- mcols(genes)$symbol <- tryCatch({
+        suppressMessages(AnnotationDbi::mapIds(OrgDb, keys = mcols(genes)$gene_id, column = "SYMBOL", keytype = "ENTREZID", multiVals = "first"))
+        TRUE
+      }, error = function(x){
+        FALSE
+      })
+
+      isEnsembl <- mcols(genes)$symbol <- tryCatch({
+        suppressMessages(AnnotationDbi::mapIds(OrgDb, keys = mcols(genes)$gene_id, column = "SYMBOL", keytype = "ENSEMBL", multiVals = "first"))
+        TRUE
+      }, error = function(x){
+        FALSE
+      })
+
+      if(isEntrez){
+        annoStyle <- "ENTREZID"
+      }else if(isEnsembl){
+        annoStyle <- "ENSEMBL"
+      }else{
+        stop("Could not identify keytype for annotation format!")
+      }
+
+    }
+    annoStyle <- toupper(annoStyle)
+
+    message("Determined Annotation Style = ", annoStyle)
+
+    ###########################
+    mcols(genes)$symbol <- suppressMessages(AnnotationDbi::mapIds(OrgDb, keys = mcols(genes)$gene_id, column = "SYMBOL", keytype = annoStyle, multiVals = "first"))
+    mcols(genes)$symbol[is.na(mcols(genes)$symbol)] <- paste0("NA_", mcols(genes)$gene_id)[is.na(mcols(genes)$symbol)]
+    names(genes) <- NULL
+    genes <- sort(sortSeqlevels(genes), ignore.strand = TRUE)
+
+    ###########################
+    message("Getting Exons..")
+    exons <- unlist(GenomicFeatures::exonsBy(TxDb, by = "tx"))
+    exons$tx_id <- names(exons)
+    mcols(exons)$gene_id <- suppressMessages(AnnotationDbi::select(TxDb, keys = paste0(mcols(exons)$tx_id), column = "GENEID", keytype = "TXID")[, "GENEID"])
+    exons <- exons[!is.na(mcols(exons)$gene_id), ]
+    mcols(exons)$symbol <- suppressMessages(AnnotationDbi::mapIds(OrgDb, keys = mcols(exons)$gene_id, column = "SYMBOL", keytype = annoStyle, multiVals = "first"))
+    mcols(exons)$symbol[is.na(mcols(exons)$symbol)] <- paste0("NA_", mcols(exons)$gene_id)[is.na(mcols(exons)$symbol)]
+    names(exons) <- NULL
+    mcols(exons)$exon_id <- NULL
+    mcols(exons)$exon_name <- NULL
+    mcols(exons)$exon_rank <- NULL
+    mcols(exons)$tx_id <- NULL
+    exons <- sort(sortSeqlevels(exons), ignore.strand = TRUE)
+
+    ###########################
+    message("Getting TSS..")
+    TSS <- unique(resize(GenomicFeatures::transcripts(TxDb), width = 1, fix = "start"))
+
+    if(!is.null(inGenes)){
+      genes <- ArchR:::.validGRanges(inGenes)
+    }
+
+    if(!is.null(inExons)){
+      exons <- ArchR:::.validGRanges(inExons)
+    }
+
+    if(!is.null(inTSS)){
+      TSS <- ArchR:::.validGRanges(inTSS)
+    }
+
+  }else{
+
+    genes <- ArchR:::.validGRanges(genes)
+    exons <- ArchR:::.validGRanges(exons)
+    TSS <- unique(ArchR:::.validGRanges(TSS))
+
+  }
+
+  SimpleList(genes = genes, exons = exons, TSS = TSS)
+
+}
+```
+
+
+```{r}
+library(TxDb.Rnorvegicus.UCSC.rn6.refGene)
+library(org.Rn.eg.db)
+geneAnnotation = createGeneAnnotation(
+  TxDb = TxDb.Rnorvegicus.UCSC.rn6.refGene,
+  OrgDb = org.Rn.eg.db)
+geneAnnotation
+```
+
+# 1.6 Creating Arrow Files
+
+```{r}
+# radix = "m154207_HF"
+# radix = "m154211_spdiet"
+# radix = "m167108"
+# radix = "m168101"
+radix = "m167203"
+```
+
+```{r}
+ArrowFiles = createArrowFiles(
+  inputFiles = 
+    # "../cellranger/m154207_HF/bap2/final/possorted_bam.bap.bam",
+    # "../cellranger/m154211_spdiet/bap2/final/possorted_bam.bap.bam",
+    # "../cellranger/m167108/bap2/final/possorted_bam.bap.bam",
+    # "../cellranger/m168101/bap2/final/possorted_bam.bap.bam",
+    "../cellranger/m167203/bap2/final/possorted_bam.bap.bam",
+  sampleNames =
+    # "m154207",
+    # "m154211",
+    # "m167108",
+    # "m168101",
+    "m167203",
+  geneAnnotation = geneAnnotation,
+  genomeAnnotation = genomeAnnotation,
+  minTSS = 4,
+  minFrags = 1000,
+  maxFrags = 1e+6,
+  bcTag = "DB",
+  bamFlag = list(
+    isProperPair = TRUE,
+    isSecondaryAlignment = FALSE,
+    isSupplementaryAlignment = FALSE),
+  addTileMat = TRUE,
+  addGeneScoreMat = TRUE
+)
+ArrowFiles
+```
+
+Create project
+
+```{r}
+Sys.setenv(HDF5_USE_FILE_LOCKING = "FALSE") # For ZFS
+proj1 = ArchRProject(
+  ArrowFiles = ArrowFiles,
+  copyArrows = FALSE,
+  geneAnnotation = geneAnnotation,
+  genomeAnnotation = genomeAnnotation,
+  showLogo = FALSE
+)
+getAvailableMatrices(proj1)
+```
+
+Plotting QC metrics
+
+```{r}
+bap2QC = read.csv(
+  paste0("../cellranger/", radix, "/bap2/final/possorted_bam.QCstats.csv"),
+  head=TRUE
+);
+bap2QC$barcode =
+  paste0(sub("_.*", "", radix), "#", bap2QC$DropBarcode)
+all(proj1$cellNames %in% bap2QC$barcode)
+bap2QC = bap2QC[match(proj1$cellNames, bap2QC$barcode), ]
+
+proj1$duplicate_ratio =
+  bap2QC$duplicateProportion
+proj1$mitochondrial_ratio =
+  bap2QC$totalMitoFrags / 
+  (bap2QC$totalNuclearFrags + bap2QC$totalMitoFrags)
+proj1$log10_passed_reads_TSS =
+  log(bap2QC$uniqueNuclearFrags *
+        bap2QC$tssProportion + 1, 10) # TSS in nuclear chrm
+proj1$TSS_ratio = bap2QC$tssProportion
+```
+
+Plot and determine threshold.
+
+```{r}
+library(viridisLite);
+library(ggplot2);
+p1 = ggplot(
+  data = as.data.frame(getCellColData(proj1)),
+  # aes(x = log10(nFrags), y = TSSEnrichment)) +
+  # aes(x = log10(ReadsInTSS), y = TSSEnrichment)) +
+  aes(x = log10_passed_reads_TSS, y = TSS_ratio)) +
+  # geom_point(size = 0.1, aes(col = duplicate_ratio)) +
+  geom_point(size = 0.1, aes(col = mitochondrial_ratio)) +
+  scale_color_gradientn(colours = viridis(256, option = "D")) +
+  labs(title = radix) +
+  scale_y_log10()
+# p1
+ggsave("reads_TSS.png", p1, dpi = 150)
+
+proj2 = proj1[which(
+  proj1$log10_passed_reads_TSS >= 3 &
+    proj1$TSS_ratio >= 0.075   # 0.075 0.15
+), ];
+proj2
+# m154207              3.0 0.075   3034
+# m154211              3.0 0.075   3477
+# m167108              3.0 0.15    3277
+# m168101              3.0 0.15    3130
+# m167203              3.0 0.075   2427
+```
+
+## Step 2b. More barcode QC
+
+Inspired by ataqv's fraction of autosomal reads from a single chromosome
+
+```{r}
+readsperchr = data.frame()
+for (c in paste0("chr", c(1:20, "X"))) { # rat 20
+  x = sparseMatrixStats::colSums2(
+    assay(
+      getMatrixFromProject(
+        proj2,
+        useMatrix = "TileMatrix",
+        useSeqnames = c,
+        binarize = TRUE)))
+  readsperchr = rbind(
+    readsperchr,
+    as.data.frame(
+      matrix(x, nrow = 1)))
+}
+readsperchr = t(as.matrix(readsperchr))
+readsperchr = readsperchr / rowSums(readsperchr)
+readsperchr = t(t(readsperchr) - colMeans(readsperchr))
+readsperchr = readsperchr / sd(readsperchr)
+p1 = ggplot(
+  data = data.frame(
+    x = 1:nrow(readsperchr),
+    y = sort(rowSums(abs(readsperchr)))),
+  aes(x = x, y = y)) +
+  geom_point()
+ggsave("foo.png", p1, dpi = 150)
+# remove outliers
+x = (rowSums(abs(readsperchr)) < 40)
+table(x)
+proj3 = proj2[which(x), ]
+proj3
+# m154207 3020
+# m154211 3462
+# m167108 3260
+# m168101 3110
+# m167203 2410
+
+# data = data.frame(
+#   exp =
+#     qchisq((1:nrow(readsperchr) - 0.5) / nrow(readsperchr),
+#            df = 10),
+#   obs =
+#     sort(rowSums(readsperchr^2)))
+# # does not fit
+# ggplot(data = data) +
+#   geom_point(aes(x = exp, y = obs)) +
+#   scale_x_log10() +
+#   scale_y_log10()
+```
+
+## Step 2c. More barcode QC
+
+Nucleosome Banding Scores
+https://atlas.gs.washington.edu/mouse-atac/docs/
+
+```{r}
+write.table(gsub(".*possorted_bam_", "", proj3$cellNames),
+            file = "mybarcodes.txt",
+            quote = FALSE,
+            row.names = FALSE,
+            col.names = FALSE)
+```
+
+Extracting Insert-Size Distributions
+
+Use bam file that excludes MT
+
+```{bash}
+python ~/human/singlecell/get_insert_size_distribution_per_cell.py ../cellranger/m167203/bap2/final/snap.nsrt.bam insert_sizes.txt --barcodes mybarcodes.txt
+# ../cellranger/m154207_HF/bap2/final/snap.nsrt.bam
+# ../cellranger/m154211_spdiet/bap2/final/snap.nsrt.bam
+# ../cellranger/m167108/bap2/final/snap.nsrt.bam
+# ../cellranger/m168101/bap2/final/snap.nsrt.bam
+# ../cellranger/m167203/bap2/final/snap.nsrt.bam
+```
+
+Generating Banding Scores
+
+```{bash}
+Rscript ~/human/singlecell/calculate_nucleosome_banding_scores.R insert_sizes.txt banding_scores.txt --barcodes mybarcodes.txt
+```
+
+The output file in this case is banding_scores.txt, a TSV separated file with cell and nucleosome_score as columns. Lower scores indicate less apparent banding. We recommend plotting a distribution of all scores and setting a cutoff. In our case there was an long left tail that could be used to establish a pass-fail threshold for inclusion in downstream analysis. 
+
+We found that the log-transformation of these scores across all tissues was roughly normally distributed with a long lower tail (representing cells with increasingly poor nucleosome signals) and so we only retained cells with a log-transformed score of -0.8 for further analysis.
+
+```{r}
+data = read.csv("banding_scores.txt")
+p1 = ggplot(
+  data = data.frame(
+    x = 1:nrow(data),
+    y = log10(sort(data$banding_score))),
+  aes(x = x, y = y)) +
+  geom_point()
+ggsave("foo.png", p1, dpi = 150)
+
+# plot(log10(sort(data$banding_score)))
+b = quantile(log10(data$banding_score), c(0.01, 0.99))
+x = data$cell[
+  data$banding_score > 10^b[1] &
+    data$banding_score < 10^b[2]]
+x =
+  paste0(sub("_.*", "", radix), "#possorted_bam_", x)
+x = (proj3$cellNames %in% x)
+table(x)
+proj4 = proj3[which(x), ]
+proj4
+# m154207 2958
+# m154211 3392
+# m167108 3194
+# m168101 3046
+# m167203 2360
+```
+
+## Step 2d. More barcode QC
+
+```{r}
+bc = gsub(".*possorted_bam_", "", proj4$cellNames)
+write.table(bc,
+            file = "mybarcodes.scPloidy_input.txt",
+            quote = FALSE,
+            row.names = FALSE,
+            col.names = FALSE)
+```
+
+Run scPloidy
+
+```{r}
+multiplet = read.table("multiplet.multinom.txt", header = TRUE)
+all(bc %in% multiplet$barcode)
+x = ! multiplet$multiplet.multinom[match(bc, multiplet$barcode)]
+table(x)
+proj5 = proj4[which(x), ]
+proj5
+# m154207 2883
+# m154211 3281
+# m167108 2948
+# m168101 2880
+# m167203 2268
+```
+
+## doublet
+
+In the above output, ArchR reports the R2 value for the UMAP projection for each Arrow file. If these R2 values are much lower (i.e. less than 0.9), this often indicates that the cells within the Arrow file have very little heterogeneity. This makes the accuracy of doublet calling worse because the majority of doublets would be “homotypic” - or a single droplet with two very similar cells. In these cases, we recommend skipping doublet prediction. Alternatively, you can try setting knnMethod = "LSI" and force = TRUE to perform projection in the LSI subspace; however, you should manually assess the results and make sure this is performing as you would expect.
+
+```{r}
+proj6 = addDoubletScores(
+    input = proj5
+)
+
+quantile(
+  proj6$DoubletEnrichment,
+  seq(0.9, 1, 0.01))
+
+## Not good
+# countmapped = function(project, gene) {
+#   x = 
+#     getMatrixFromProject(
+#       project,
+#       useMatrix = "GeneScoreMatrix")
+#   return(assay(x)[which(x@elementMetadata$name == gene), ])
+# }
+countmapped = function(project, gene) {
+  gr = getGenes(project, gene)
+  x = 
+    getMatrixFromProject(
+      project,
+      useMatrix = "TileMatrix",
+      useSeqnames = as.character(seqnames(gr)),
+      binarize = TRUE)
+  overlap =
+    GenomicRanges::findOverlaps(
+      GRanges(
+        x@elementMetadata@listData$seqnames,
+        IRanges(
+          x@elementMetadata@listData$start,
+          width = 500)),
+      gr,
+      select = "first")
+  overlap = which(! is.na(overlap))
+  countmapped =
+    sparseMatrixStats::colSums2(
+      assay(x)[overlap, ])
+  return(countmapped)
+}
+
+plotdata = data.frame(
+  barcode = proj6$cellNames,
+  Alb   = countmapped(proj6, "Alb"),
+  Csf1r = countmapped(proj6, "Csf1r"),
+  DoubletEnrichment = proj6$DoubletEnrichment)
+
+library(viridisLite);
+library(ggplot2);
+p1 = ggplot(
+  data = plotdata,
+  aes(x = Alb,
+      y = Csf1r)) +
+  geom_jitter(aes(col = log10(DoubletEnrichment + 1)),
+             size = 0.5) +
+  scale_color_gradientn(colours = viridis(256, option = "D"))
+ggsave("multiplet_hepatocyte_macrophage.pdf", p1)
+
+proj7 =
+  proj6[which(proj6$DoubletEnrichment <= 10), ]
+proj7
+# m154207 2719
+# m154211 3159
+# m167108 2718
+# m168101 2707
+# m167203 1994
+
+saveArchRProject(
+  ArchRProj = proj7,
+  dropCells = TRUE
+)
+```
+
+
+```{r}
+write.table(gsub(".*possorted_bam_", "", proj7$cellNames),
+            file = "mybarcodes.doubletremoved.txt",
+            quote = FALSE,
+            row.names = FALSE,
+            col.names = FALSE)
+```
+
+
+Combine projects
+
+```{r}
+proj1a = loadArchRProject("../m154207/ArchR_bap2/ArchROutput/")
+proj1b = loadArchRProject("../m154211/ArchR_bap2/ArchROutput/")
+proj1c = loadArchRProject("../m167108/ArchR_bap2/ArchROutput/")
+proj1d = loadArchRProject("../m168101/ArchR_bap2/ArchROutput/")
+proj1e = loadArchRProject("../m167203/ArchR_bap2/ArchROutput/")
+
+proj1 = ArchRProject(
+  ArrowFiles = c(
+    "../m154207/ArchR_bap2/ArchROutput/ArrowFiles/m154207.arrow",
+    "../m154211/ArchR_bap2/ArchROutput/ArrowFiles/m154211.arrow",
+    "../m167108/ArchR_bap2/ArchROutput/ArrowFiles/m167108.arrow",
+    "../m168101/ArchR_bap2/ArchROutput/ArrowFiles/m168101.arrow",
+    "../m167203/ArchR_bap2/ArchROutput/ArrowFiles/m167203.arrow"),
+  copyArrows = FALSE,
+  geneAnnotation = geneAnnotation,
+  genomeAnnotation = genomeAnnotation,
+  showLogo = FALSE
+)
+
+proj1 = proj1[
+  which(proj1$cellNames %in%
+          c(proj1a$cellNames,
+            proj1b$cellNames,
+            proj1c$cellNames,
+            proj1d$cellNames,
+            proj1e$cellNames)), ]
+table(proj1$Sample)
+getAvailableMatrices(proj1)
+
+rm(proj1a, proj1b, proj1c, proj1d, proj1e)
+
+# proj1$Batch = NA
+# proj1$Batch[proj1$Sample %in% c("m154207", "m154211")] = "genewiz"
+# proj1$Batch[proj1$Sample %in% c("m167108", "m168101")] = "lisdac"
+# table(proj1$Batch, proj1$Sample)
+```
+
+
+Load manually annotated cell types
+
+```{r}
+library(tidyverse)
+celltype =
+  lapply(
+    unique(proj1$Sample),
+    function (s) {
+      cluster =
+        read.table(
+          paste0("../",
+                 s,
+                 "/SnapATAC_bap2/cluster.txt"),
+          header = TRUE,
+          sep = "\t")
+      celltype =
+        read.table(
+          paste0("../",
+                 s,
+                 "/SnapATAC_bap2/cluster.celltype_simple.txt"),
+          header = TRUE,
+          sep = "\t")
+      all(cluster$cluster %in% celltype$cluster)
+      cluster = cluster %>%
+        left_join(celltype, by = "cluster") %>%
+        select(-cluster)
+      ploidy =
+        read.table(
+          paste0("../",
+                 s,
+                 "/ArchR_bap2/ploidy.txt"),
+          header = TRUE,
+          sep = "\t")
+      all(cluster$barcode %in% ploidy$barcode)
+      cluster$ploidy = ploidy$ploidy[match(cluster$barcode, ploidy$barcode)]
+      cluster$barcode =
+        paste0(s, "#possorted_bam_", cluster$barcode)
+      return(cluster)
+    })
+celltype = do.call(rbind, celltype)
+all(proj1$cellNames %in% celltype$barcode)
+proj1$celltype =
+  celltype$celltype[match(proj1$cellNames, celltype$barcode)]
+proj1$ploidy =
+  celltype$ploidy[match(proj1$cellNames, celltype$barcode)]
+rm(celltype)
+```
+
+## myLSI2
+
+Load tile matrix
+
+```{r}
+mat =
+  getMatrixFromProject(
+    proj1,
+    useMatrix = "TileMatrix",
+    binarize = TRUE)
+```
+
+quantile normalization to remove batch effect by samples
+
+```{r}
+sampleLabels = unique(as.character(mat$Sample))
+if (length(sampleLabels) == 1 ) {
+  print("No need for quantile normalization")
+}
+
+rowMeansbysample = sapply(
+  sampleLabels,
+  function (s) {
+    Matrix::rowMeans(assay(mat)[, which(mat$Sample == s), drop = FALSE])
+  })
+rowMeansbysampleqn =
+  preprocessCore::normalize.quantiles(rowMeansbysample)
+colnames(rowMeansbysampleqn) =
+  colnames(rowMeansbysample)
+
+rowMeansbysampleGR =
+  GRanges(
+    mat@elementMetadata$seqnames,
+    IRanges(
+      mat@elementMetadata$start,
+      width = 500))
+
+dim(rowMeansbysample)
+rowMeansbysampleGR
+```
+
+Plot inspection
+
+```{r}
+plotdata = rowMeansbysampleqn
+colnames(plotdata) = paste0(colnames(plotdata), ".corrected")
+plotdata = cbind(rowMeansbysample, plotdata)
+plotdata = plotdata[rowSums(plotdata) > 0, ]
+plotdata = as.data.frame(plotdata)
+library(ggplot2)
+ggplot(
+  data = plotdata,
+  aes(x = m154207,
+      y = m154211)) +
+  geom_bin2d() +
+  scale_fill_gradient(name = "count", trans = "log10") +
+  geom_abline(slope = 1, intercept = 0)
+```
+
+QC
+
+```{r}
+# Compute Col Sums
+colSm <- Matrix::colSums(assay(mat))
+
+# Clean up zero rows
+# Actually redundant, because later filtered by adjvar
+rowSm <- Matrix::rowSums(assay(mat))
+idx <- which(rowSm > 1)
+mat <- mat[idx, ]
+rowSm <- rowSm[idx]
+rowMeansbysample   = rowMeansbysample[idx, ]
+rowMeansbysampleqn = rowMeansbysampleqn[idx, ]
+rowMeansbysampleGR = rowMeansbysampleGR[idx, ]
+
+# exclude a small number of ~100% inserted windows
+# Actually redundant, because later filtered by adjvar
+idx <- which(rowSm/ncol(mat) < 0.85)
+mat <- mat[idx, ]
+rowSm <- rowSm[idx]
+rowMeansbysample   = rowMeansbysample[idx, ]
+rowMeansbysampleqn = rowMeansbysampleqn[idx, ]
+rowMeansbysampleGR = rowMeansbysampleGR[idx, ]
+
+rowSmnorm = rowSm / sqrt(sum(rowSm^2))
+```
+
+not used
+
+```{r}
+libcorrect0 =
+  # (max(colSm) - colSm) / (nrow(mat) - colSm)
+  sqrt((max(colSm) - colSm) / (nrow(mat) - colSm))
+
+x = t(rowSmnorm) %*% assay(mat)
+libcorrect0 = max(x) - as.numeric(x)
+```
+
+Smaller submatrix for faster computation
+
+```{r}
+adjvarmin = 0.2 0.3 0.4 0.5
+
+# set.seed(1)
+# idx = sort(sample(nrow(mat), 50000)) # 25000
+
+# variance after IDF weighting
+adjvar = log2(ncol(mat)/rowSm)^2 *
+  (rowSm/ncol(mat)) *
+  (1 - rowSm/ncol(mat))
+
+# qplot(
+#   x = rowSm/ncol(mat),
+#   y = adjvar,
+#   geom = "bin2d")
+# quantile(adjvar, seq(0, 1, 0.1))
+
+idx = sort(head(order(adjvar, decreasing = TRUE), 150e3)) # 0.7703329
+idx = which(adjvar > adjvarmin)
+# 472525   adjvar05
+# 755445   adjvar04
+# 1348867  adjvar03
+# 3101911  adjvar02
+
+mat2 = mat[idx, ]
+rowSm2 <- rowSm[idx]
+rowSmnorm2 <- rowSmnorm[idx]
+rowMeansbysample2   = rowMeansbysample[idx, ]
+rowMeansbysampleqn2 = rowMeansbysampleqn[idx, ]
+rowMeansbysampleGR2 = rowMeansbysampleGR[idx, ]
+```
+
+not used
+Sample batch correct mat2
+
+```{r}
+mat2@assays@data@listData[[1]] =
+  Matrix(mat2@assays@data@listData[[1]],
+         sparse = FALSE)
+
+for (s in sampleLabels) {
+  print(s)
+  x = assay(mat2)[, which(mat2$Sample == s), drop = FALSE]
+  
+  # x0 = as.matrix(x == 0)
+  # correct0 =
+  #   (rowMeansbysampleqn2[, s] - rowMeansbysample2[, s]) /
+  #   (1 - rowMeansbysample2[, s])
+  # correct0[rowMeansbysampleqn2[, s] <= rowMeansbysample2[, s]] = 0
+  # correct0 = matrix(
+  #   correct0,
+  #   nrow = nrow(x),
+  #   ncol = ncol(x),
+  #   byrow = FALSE)
+  
+  x1 = as.matrix(x == 1)
+  correct1 =
+    (rowSm2 / ncol(mat2)) / rowMeansbysample2[, s]
+    # rowMeansbysampleqn2[, s] / rowMeansbysample2[, s]
+
+  correct1cap =
+    quantile(correct1, 0.75, na.rm = TRUE)^2 /
+    quantile(correct1, 0.5, na.rm = TRUE)
+  correct1 = pmin(correct1, correct1cap)
+  
+  # correct1[rowMeansbysampleqn2[, s] >= rowMeansbysample2[, s]] = 1
+  correct1 = matrix(
+    correct1,
+    nrow = nrow(x),
+    ncol = ncol(x),
+    byrow = FALSE)
+  
+  # x[x0] = correct0[x0]
+  x[x1] = correct1[x1]
+  
+  assay(mat2)[, which(mat2$Sample == s), drop = FALSE] = x
+}
+```
+
+not used
+Library size correct
+
+```{r}
+mat2@assays@data@listData[[1]] =
+  Matrix(mat2@assays@data@listData[[1]],
+         sparse = FALSE)
+
+x = assay(mat2)
+
+# rowSmnormadjustall
+x = x + (rowSmnorm2 %*% t(libcorrect0))
+
+# x[as.matrix(x == 0)] =
+#   matrix(
+#     libcorrect0,
+#     nrow = nrow(mat2),
+#     ncol = ncol(mat2),
+#     byrow = TRUE)[as.matrix(x == 0)]
+
+# # rowSmnormadjust0
+# x[as.matrix(x == 0)] =
+#   (rowSmnorm2 %*%
+#      t(libcorrect0))[as.matrix(x == 0)]
+# x[as.matrix(x > 1)] = 1
+
+assay(mat2) = x
+
+```
+
+not used
+
+```{r}
+assay(mat2) = assay(mat2) / rowSds(as.matrix(assay(mat2)))
+```
+
+Library size correct to unit vector
+unitsize
+
+```{r}
+# assay(mat2) = assay(mat2) /
+#   matrix(
+#     sqrt(colSums(assay(mat2)^2)),
+#     nrow = nrow(mat2),
+#     ncol = ncol(mat2),
+#     byrow = TRUE)
+assay(mat2) = assay(mat2) %*%
+  Diagonal(x = 1/sqrt(colSums(assay(mat2)^2)))
+```
+
+Sample batch correct mat2
+featurenormbyscale (1st round)
+
+```{r}
+target = rowMeans(assay(mat2))
+
+# mat2@assays@data@listData[[1]] =
+#   Matrix(mat2@assays@data@listData[[1]],
+#          sparse = FALSE)
+
+for (s in sampleLabels) {
+  print(s)
+  # x = assay(mat2)[, which(mat2$Sample == s), drop = FALSE]
+  x = assay(mat2) %*% Diagonal(x = as.numeric(mat2$Sample == s))
+  y = assay(mat2) %*% Diagonal(x = as.numeric(mat2$Sample != s))
+  rowMeansx = rowSums(x) / sum(mat2$Sample == s)
+  correct = target / rowMeansx
+  correct[rowMeansx == 0] = 1
+  # correct = target / rowMeans(x)
+  # correct[rowMeans(x) == 0] = 1
+  # correct can inflate, especially when sum(x[i,] > 0) = 1, 2
+  # log(correct[correct > 1]) seems to increase linearly in the beginning
+  correctcap =
+    quantile(correct, 0.75, na.rm = TRUE)^2 /
+    quantile(correct, 0.5, na.rm = TRUE)
+  correct = pmin(correct, correctcap)
+  # x = x * correct
+  x = Diagonal(x = correct) %*% x
+
+  # assay(mat2)[, which(mat2$Sample == s), drop = FALSE] = x
+  assay(mat2) = x + y
+  rm(x, y, rowMeansx, correct, correctcap)
+}
+```
+
+not used
+Sample batch correct mat2
+featurenormbyshift
+
+```{r}
+mat2@assays@data@listData[[1]] =
+  Matrix(mat2@assays@data@listData[[1]],
+         sparse = FALSE)
+
+target = rowMeans(assay(mat2))
+                  
+for (s in sampleLabels) {
+  print(s)
+  x = assay(mat2)[, which(mat2$Sample == s), drop = FALSE]
+  
+  x = x + (target - rowMeans(x))
+
+  assay(mat2)[, which(mat2$Sample == s), drop = FALSE] = x
+  rm(x)
+}
+```
+
+IDF (inverse document frequency)
+rowSm2 is calculated from original binary matrix
+
+```{r}
+# assay(mat2) = assay(mat2) * log2(ncol(mat2) / rowSm2)
+assay(mat2) = Diagonal(x = log2(ncol(mat2) / rowSm2)) %*%
+  assay(mat2)
+```
+
+Row centralization is mandatory!
+[Skillicorn, Understanding complex datasets. p.51]
+
+```{r}
+gc()
+set.seed(1)
+
+# assay(mat2) = assay(mat2) - rowMeans(assay(mat2))
+# svd <- irlba::irlba(assay(mat2), 30, 30)
+
+# irlba only provides column centralization, not for rows
+svd <- irlba::irlba(t(assay(mat2)), 30, 30,
+                    center = rowMeans(assay(mat2)))
+svdback = svd
+svd$u = svdback$v
+svd$v = svdback$u
+rm(svdback)
+```
+
+
+```{r}
+x = order(abs(svd$u[,1]), decreasing = TRUE)[1:10]
+svd$u[x,1]
+rowMeansbysampleGR2[x, ]
+```
+!!! check genome viewer
+cell type error?
+
+Plot inspection
+
+```{r}
+library(viridisLite);
+
+plotdata = as.data.frame(svd$v)
+plotdata$colSm    = colSm
+plotdata$celltype = mat2$celltype
+plotdata$ploidy   = mat2$ploidy
+plotdata$Sample   = as.character(mat2$Sample)
+
+ggplot(
+  data = plotdata,
+  aes(x = V1,
+      y = V2)) +
+  geom_point(aes(
+    # col = log10(colSm)
+    col = celltype
+    # col = ploidy
+    ),
+    size = 0.1) +
+  # scale_color_gradientn(colours = viridis(256, option = "D")) +
+  facet_grid(rows = vars(Sample)) +
+  geom_rug()
+# adjvar02 adjvar03 can generate extreme outlier cells
+```
+
+In above plot, higher dimensions appear to be random noise.
+
+```{r}
+dmax = 10 # svd_150Ktopvar.unitsize_featurenormbyscale_IDF
+x = svd$v[, 1:dmax] %*% diag(svd$d[1:dmax])
+rownames(x) = colnames(mat2)
+colnames(x) = paste0("LSI", seq(1, ncol(x)))
+```
+
+```{r}
+table(proj1$cellNames %in% rownames(x))
+proj1@reducedDims[[
+  "myLSI"
+  ]] <-
+  SimpleList(matDR = x[proj1$cellNames, ],
+             params = list(),
+             date = Sys.time(),
+             scaleDims = NA, 
+             corToDepth = NA)
+```
+
+Outliers are apparent in PC1 & PC2
+
+```{r}
+gc()
+# distmat = as.matrix(dist(svd$v[, 1:2]))
+distmat = as.matrix(dist(svd$v[, 1:2] %*% diag(svd$d[1:2])))
+distmat = distmat^2
+distmat = apply(
+  distmat,
+  1,
+  function (x) {
+    sum(head(sort(x), 5 + 1)) # distance to itself is 0
+  })
+plot(log10(sort(distmat)))
+outlier = (distmat > 10^-1.85)
+table(outlier) # 13211    86
+table(outlier, as.character(mat2$Sample))
+# outlier m154207 m154211 m167108 m167203 m168101
+#   FALSE    2716    3148    2673    1987    2687
+#   TRUE        3      11      45       7      20
+notoutlier = colnames(mat2)[! outlier]
+rm(distmat)
+
+ggplot(
+  data = plotdata,
+  aes(x = V1,
+      y = V2)) +
+  geom_point(aes(col = outlier),
+             size = 0.1) +
+  facet_grid(rows = vars(Sample)) +
+  geom_rug()
+```
+
+```{r}
+proj1b = proj1[which(proj1$cellNames %in% notoutlier), ]
+proj1b@reducedDims[["myLSI"]]$matDR =
+  (proj1b@reducedDims[["myLSI"]]$matDR)[proj1b$cellNames, ]
+```
+
+```{r}
+rm(mat, mat2, svd, x)
+```
+
+```{r}
+proj1b <- addClusters(
+    input = proj1b,
+    reducedDims = "myLSI",
+    method = "Seurat",
+    algorithm = 4, # Leiden
+    name = "Clusters",
+    force = TRUE
+)
+table(proj1b$Sample, proj1b$Clusters)
+```
+
+
+```{r}
+table(proj1b$celltype, proj1b$Clusters)
+
+# svd_150Ktopvar.unitsize_featurenormbyscale_IDF
+proj1b$Clusterscoarse = NA
+proj1b$Clusterscoarse[
+  proj1b$Clusters %in% paste0("C", 1:8)] = "hepatocyte"
+proj1b$Clusterscoarse[
+  proj1b$Clusters %in% paste0("C", c(9:11, 14))] = "WBC"
+proj1b$Clusterscoarse[
+  proj1b$Clusters %in% paste0("C", c(12:13))] = "endothelial cell"
+proj1b$Clusterscoarse[
+  proj1b$Clusters %in% paste0("C", 15)] = "stellate"
+
+# adjvar02
+proj1b$Clusterscoarse = NA
+proj1b$Clusterscoarse[
+  proj1b$Clusters %in% paste0("C", 1:11)] = "hepatocyte"
+proj1b$Clusterscoarse[
+  proj1b$Clusters %in% paste0("C", 16:20)] = "WBC"
+proj1b$Clusterscoarse[
+  proj1b$Clusters %in% paste0("C", 12:14)] = "endothelial cell"
+proj1b$Clusterscoarse[
+  proj1b$Clusters %in% paste0("C", 15)] = "stellate"
+
+# adjvar03
+proj1b$Clusterscoarse = NA
+proj1b$Clusterscoarse[
+  proj1b$Clusters %in% paste0("C", 5:12)] = "hepatocyte"
+proj1b$Clusterscoarse[
+  proj1b$Clusters %in% paste0("C", c(1:4, 13:14))] = "WBC"
+proj1b$Clusterscoarse[
+  proj1b$Clusters %in% paste0("C", 16:18)] = "endothelial cell"
+proj1b$Clusterscoarse[
+  proj1b$Clusters %in% paste0("C", 15)] = "stellate"
+
+# adjvar04
+proj1b$Clusterscoarse = NA
+proj1b$Clusterscoarse[
+  proj1b$Clusters %in% paste0("C", 5:12)] = "hepatocyte"
+proj1b$Clusterscoarse[
+  proj1b$Clusters %in% paste0("C", c(1:4, 13:14))] = "WBC"
+proj1b$Clusterscoarse[
+  proj1b$Clusters %in% paste0("C", 16:17)] = "endothelial cell"
+proj1b$Clusterscoarse[
+  proj1b$Clusters %in% paste0("C", 15)] = "stellate"
+
+# adjvar05
+proj1b$Clusterscoarse = NA
+proj1b$Clusterscoarse[
+  proj1b$Clusters %in% paste0("C", 5:12)] = "hepatocyte"
+proj1b$Clusterscoarse[
+  proj1b$Clusters %in% paste0("C", c(1:4, 13:14))] = "WBC"
+proj1b$Clusterscoarse[
+  proj1b$Clusters %in% paste0("C", 16:17)] = "endothelial cell"
+proj1b$Clusterscoarse[
+  proj1b$Clusters %in% paste0("C", 15)] = "stellate"
+
+# 150KtopvarLeiden
+proj1b$Clusterscoarse = NA
+proj1b$Clusterscoarse[
+  proj1b$Clusters %in% paste0("C", 1:8)] = "hepatocyte"
+proj1b$Clusterscoarse[
+  proj1b$Clusters %in% paste0("C", c(12:15))] = "WBC"
+proj1b$Clusterscoarse[
+  proj1b$Clusters %in% paste0("C", c(10:11))] = "endothelial cell"
+proj1b$Clusterscoarse[
+  proj1b$Clusters %in% paste0("C", 9)] = "stellate"
+
+# adjvar02Leiden
+proj1b$Clusterscoarse = NA
+proj1b$Clusterscoarse[
+  proj1b$Clusters %in% paste0("C", 1:12)] = "hepatocyte"
+proj1b$Clusterscoarse[
+  proj1b$Clusters %in% paste0("C", c(13, 18:22))] = "WBC"
+proj1b$Clusterscoarse[
+  proj1b$Clusters %in% paste0("C", 15:17)] = "endothelial cell"
+proj1b$Clusterscoarse[
+  proj1b$Clusters %in% paste0("C", 14)] = "stellate"
+
+# adjvar03Leiden
+proj1b$Clusterscoarse = NA
+proj1b$Clusterscoarse[
+  proj1b$Clusters %in% paste0("C", 5:13)] = "hepatocyte"
+proj1b$Clusterscoarse[
+  proj1b$Clusters %in% paste0("C", c(1:4, 14:15))] = "WBC"
+proj1b$Clusterscoarse[
+  proj1b$Clusters %in% paste0("C", 17:19)] = "endothelial cell"
+proj1b$Clusterscoarse[
+  proj1b$Clusters %in% paste0("C", 16)] = "stellate"
+
+# adjvar04Leiden
+proj1b$Clusterscoarse = NA
+proj1b$Clusterscoarse[
+  proj1b$Clusters %in% paste0("C", 5:12)] = "hepatocyte"
+proj1b$Clusterscoarse[
+  proj1b$Clusters %in% paste0("C", c(1:4, 13:14))] = "WBC"
+proj1b$Clusterscoarse[
+  proj1b$Clusters %in% paste0("C", 16:18)] = "endothelial cell"
+proj1b$Clusterscoarse[
+  proj1b$Clusters %in% paste0("C", 15)] = "stellate"
+
+# adjvar05Leiden
+proj1b$Clusterscoarse = NA
+proj1b$Clusterscoarse[
+  proj1b$Clusters %in% paste0("C", 5:12)] = "hepatocyte"
+proj1b$Clusterscoarse[
+  proj1b$Clusters %in% paste0("C", c(1:4, 13:14))] = "WBC"
+proj1b$Clusterscoarse[
+  proj1b$Clusters %in% paste0("C", 16:17)] = "endothelial cell"
+proj1b$Clusterscoarse[
+  proj1b$Clusters %in% paste0("C", 15)] = "stellate"
+
+ClusterscoarseLabels =
+  unique(proj1b$Clusterscoarse)
+
+table(proj1b$celltype, proj1b$Clusterscoarse)
+table(is.na(proj1b$Clusterscoarse))
+```
+
+Load tile matrix
+
+```{r}
+mat =
+  getMatrixFromProject(
+    proj1b,
+    useMatrix = "TileMatrix",
+    binarize = TRUE)
+```
+
+QC
+
+```{r}
+#Compute Col Sums
+colSm <- Matrix::colSums(assay(mat))
+
+#Clean up zero rows
+rowSm <- Matrix::rowSums(assay(mat))
+idx <- which(rowSm > 1)
+mat <- mat[idx, ]
+rowSm <- rowSm[idx]
+
+# exclude a small number of ~100% inserted windows
+idx <- which(rowSm/ncol(mat) < 0.85)
+mat <- mat[idx, ]
+rowSm <- rowSm[idx]
+
+rowSmnorm = rowSm / sqrt(sum(rowSm^2))
+```
+
+Smaller submatrix for faster computation
+
+```{r}
+# variance after IDF weighting
+adjvar = log2(ncol(mat)/rowSm)^2 *
+  (rowSm/ncol(mat)) *
+  (1 - rowSm/ncol(mat))
+
+idx = sort(head(order(adjvar, decreasing = TRUE), 150e3)) # 0.770206
+idx = which(adjvar > adjvarmin)
+# 471433   adjvar05
+# 756509   adjvar04
+# 1335518  adjvar03
+# 3164407  adjvar02
+
+mat2 = mat[idx, ]
+rowSm2 <- rowSm[idx]
+rowSmnorm2 <- rowSmnorm[idx]
+```
+
+Library size correct to unit vector
+unitsize
+
+```{r}
+assay(mat2) = assay(mat2) %*%
+  Diagonal(x = 1/sqrt(colSums(assay(mat2)^2)))
+```
+
+Sample batch correct mat2
+featurenormbyscale2 (2nd round)
+
+```{r}
+for (cl in ClusterscoarseLabels) {
+  print(cl)
+  target = rowMeans(
+    assay(mat2)[, which(mat2$Clusterscoarse == cl),
+                drop = FALSE])
+  
+  for (s in sampleLabels) {
+    print(s)
+    x = assay(mat2) %*%
+      Diagonal(x = as.numeric(mat2$Clusterscoarse == cl &
+                                mat2$Sample == s))
+    y = assay(mat2) %*%
+      Diagonal(x = as.numeric(mat2$Clusterscoarse != cl |
+                                mat2$Sample != s))
+    # x = assay(mat2)[, which(mat2$Clusterscoarse == cl &
+    #                           mat2$Sample == s),
+    #                 drop = FALSE]
+    rowMeansx = rowSums(x) / sum(mat2$Clusterscoarse == cl &
+                                   mat2$Sample == s)
+    correct = target / rowMeansx
+    correct[rowMeansx == 0] = 1
+    # correct = target / rowMeans(x)
+    # correct[rowMeans(x) == 0] = 1
+    # correct can inflate, especially when sum(x[i,] > 0) = 1, 2
+    # log(correct[correct > 1]) seems to increase linearly in the beginning
+    correctcap =
+      quantile(correct, 0.75, na.rm = TRUE)^2 /
+      quantile(correct, 0.5, na.rm = TRUE)
+    correct = pmin(correct, correctcap)
+    x = Diagonal(x = correct) %*% x
+    # x = x * correct
+    
+    # assay(mat2)[, which(mat2$Clusterscoarse == cl &
+    #                       mat2$Sample == s),
+    #             drop = FALSE] = x
+    assay(mat2) = x + y
+    rm(x, y, rowMeansx, correct, correctcap)
+  }
+}
+```
+
+IDF (inverse document frequency)
+rowSm2 is calculated from original binary matrix
+
+```{r}
+assay(mat2) = Diagonal(x = log2(ncol(mat2) / rowSm2)) %*%
+  assay(mat2)
+```
+
+Row centralization is mandatory!
+[Skillicorn, Understanding complex datasets. p.51]
+
+```{r}
+gc()
+set.seed(1)
+
+# assay(mat2) = assay(mat2) - rowMeans(assay(mat2))
+# svd <- irlba::irlba(assay(mat2), 30, 30)
+
+# irlba only provides column centralization, not for rows
+svd <- irlba::irlba(t(assay(mat2)), 30, 30,
+                    center = rowMeans(assay(mat2)))
+svdback = svd
+svd$u = svdback$v
+svd$v = svdback$u
+rm(svdback)
+```
+
+Plot inspection
+
+```{r}
+library(viridisLite);
+
+plotdata = as.data.frame(svd$v)
+plotdata$colSm    = colSm
+plotdata$celltype = mat2$celltype
+plotdata$ploidy   = mat2$ploidy
+plotdata$Sample   = as.character(mat2$Sample)
+
+ggplot(
+  data = plotdata,
+  aes(x = V1,
+      y = V2)) +
+  geom_point(aes(
+    # col = log10(colSm)
+    col = celltype
+    # col = ploidy
+    ),
+    size = 0.1) +
+  # scale_color_gradientn(colours = viridis(256, option = "D")) +
+  facet_grid(rows = vars(Sample)) +
+  geom_rug()
+# adjvar02 > adjvar03, adjvar04 can generate extreme outlier cells
+```
+
+In above plot, higher dimensions appear to be random noise.
+
+```{r}
+dmax = 8  # svd_150Ktopvar.unitsize_featurenormbyscale2_IDF
+x = svd$v[, 1:dmax] %*% diag(svd$d[1:dmax])
+rownames(x) = colnames(mat2)
+colnames(x) = paste0("LSI", seq(1, ncol(x)))
+```
+
+```{r}
+table(proj1b$cellNames %in% rownames(x))
+proj1b@reducedDims[[
+  "myLSI2"
+  ]] <-
+  SimpleList(matDR = x[proj1b$cellNames, ],
+             params = list(),
+             date = Sys.time(),
+             scaleDims = NA, 
+             corToDepth = NA)
+
+```
+
+```{r}
+rm(mat, mat2, svd, x)
+```
+
+```{r}
+proj1b <- addClusters(
+    input = proj1b,
+    reducedDims = "myLSI2",
+    method = "Seurat",
+    algorithm = 4, # Leiden
+    name = "Clusters2",
+    force = TRUE
+)
+
+proj2 = proj1b
+```
+
+```{r}
+table(proj2$Sample, proj2$Clusters)
+table(proj2$Sample, proj2$Clusters2)
+```
+150Ktopvar Clusters2
+1-9   hepatocyte
+10    lymphocyte
+11    macrophage
+12    macrophage, granulocyte
+13-14 stellate
+15-17 endothelial cell
+
+adjvar04 Clusters2
+1-9   hepatocyte
+10    B-cell
+11    T-cell, NK cell
+12-14 macrophage, neutrophil
+15-16 stellate
+17-19 endothelial cell
+
+adjvar04Leiden Clusters2
+1-10  hepatocyte
+11    B-cell
+12    T-cell, NK cell
+13-15 macrophage, neutrophil
+16-17 stellate
+18-20 endothelial cell
+
+```{r}
+table(proj2$Sample, proj2$Clusters, proj2$celltype)
+```
+
+```{r}
+table(proj2$Sample, proj2$Clusters2, proj2$celltype)
+```
+
+```{r}
+plotdata = as.data.frame(proj2@reducedDims[[
+  # "myLSI"
+  "myLSI2"
+  ]]$matDR)
+all(proj2$cellNames == rownames(proj2@reducedDims[[
+  # "myLSI"
+  "myLSI2"
+  ]]$matDR))
+plotdata$celltype =
+  # proj2$Clusters
+  proj2$Clusters2
+plotdata$Sample   = proj2$Sample
+
+ggplot(
+  data = plotdata,
+  aes(x = LSI1,
+      y = LSI2)) +
+  geom_point(aes(
+    col = celltype),
+    size = 0.1) +
+  facet_grid(rows = vars(Sample)) +
+  geom_rug()
+```
+
+```{r}
+# saveArchRProject(
+#   ArchRProj = proj2,
+#   dropCells = TRUE
+# )
+proj2 = loadArchRProject("ArchROutput/")
+
+# saveArchRProject(
+#   ArchRProj = proj2,
+#   # outputDirectory = "Save-Proj2.featurenormbyscale2",
+#   # outputDirectory = "Save-Proj2.adjvar02.featurenormbyscale2",
+#   # outputDirectory = "Save-Proj2.adjvar03.featurenormbyscale2",
+#   # outputDirectory = "Save-Proj2.adjvar04.featurenormbyscale2",
+#   # outputDirectory = "Save-Proj2.adjvar05.featurenormbyscale2",
+#   # outputDirectory = "Save-Proj2.Leiden.featurenormbyscale2",
+#   # outputDirectory = "Save-Proj2.adjvar02Leiden.featurenormbyscale2",
+#   # outputDirectory = "Save-Proj2.adjvar03Leiden.featurenormbyscale2",
+#   # outputDirectory = "Save-Proj2.adjvar04Leiden.featurenormbyscale2",
+#   outputDirectory = "Save-Proj2.adjvar05Leiden.featurenormbyscale2",
+#   dropCells = TRUE
+# )
+proj2 = loadArchRProject("Save-Proj2.featurenormbyscale2/")
+proj2 = loadArchRProject("Save-Proj2.adjvar04.featurenormbyscale2/")
+proj2 = loadArchRProject("Save-Proj2.adjvar04Leiden.featurenormbyscale2/")
+```
+
+## 4.2 Iterative Latent Semantic Indexing (LSI)
+
+```{r}
+proj1 = addIterativeLSI(
+  ArchRProj = proj1,
+  useMatrix = "TileMatrix", 
+  name = "IterativeLSI", 
+  LSIMethod = 1,
+  # iterations = 4,
+  # clusterParams = list( #See Seurat::FindClusters
+  #   resolution = c(0.1, 0.2, 0.4), 
+  #   sampleCells = 10000, 
+  #   n.start = 10
+  # ), 
+  varFeatures = 25000, 
+  dimsToUse = 1:30,
+  # sampleCellsPre = NULL,
+  # TileMatrixqncorrection = TileMatrixqncorrection,
+  # TileMatrixqncorrectionGR = TileMatrixqncorrectionGR,
+  force = TRUE
+)
+```
+
+## 4.4 Batch Effect Correction with Harmony
+
+This process creates a new reducedDims object called "Harmony"
+
+```{r}
+set.seed(123)
+proj1 = addHarmony(
+    ArchRProj = proj1,
+    reducedDims = "IterativeLSI",
+    name = "Harmony",
+    groupBy = "Sample", # "Sample" "Batch"
+    force = TRUE
+)
+```
+
+## 5.1 Clustering using Seurat’s FindClusters() function
+
+```{r}
+proj2 <- addClusters(
+    input = proj2,
+    reducedDims = "myLSI2", # "myLSI" "Harmony", #"IterativeLSI" ,
+    method = "Seurat",
+    name = "Clusters2", # "Clusters"
+    force = TRUE
+)
+
+table(proj2$Sample, proj2$Clusters)
+table(proj2$Sample, proj2$Clusters2)
+```
+
+## Check if myLSI2 over-corrected
+
+run myLSI2 section above, but skipping featurenormbyscale
+obtain svd
+
+```{r}
+dmax = 12
+x = svd$v[, 1:dmax] %*% diag(svd$d[1:dmax])
+rownames(x) = colnames(mat2)
+colnames(x) = paste0("LSI", seq(1, ncol(x)))
+table(proj2$cellNames %in% rownames(x))
+proj2@reducedDims[[
+  "myLSIwofeaturenormbyscale"
+  ]] <-
+  SimpleList(matDR = x[proj2$cellNames, ],
+             params = list(),
+             date = Sys.time(),
+             scaleDims = NA, 
+             corToDepth = NA)
+
+rm(mat, mat2, svd, x)
+```
+
+```{r}
+proj2 <- addClusters(
+  input = proj2,
+  reducedDims = "myLSIwofeaturenormbyscale",
+  method = "Seurat",
+  name = "Clusterswofeaturenormbyscale",
+  force = TRUE
+)
+
+table(proj2$Sample, proj2$Clusterswofeaturenormbyscale)
+```
+```{r}
+x = Seurat::FindNeighbors(
+  proj2@reducedDims[[
+    "myLSIwofeaturenormbyscale"
+  ]]$matDR,
+  return.neighbor = TRUE)
+
+idxtoSample    = proj2$Sample[match(x@cell.names, proj2$cellNames)]
+idxtoClusters2 = proj2$Clusters2[match(x@cell.names, proj2$cellNames)]
+data = data.frame(
+  node.Sample    = rep(idxtoSample, ncol(x@nn.idx)),
+  node.Clusters2 = rep(idxtoClusters2, ncol(x@nn.idx)),
+  nn.Sample      = idxtoSample[as.numeric(x@nn.idx)],
+  nn.Clusters2   = idxtoClusters2[as.numeric(x@nn.idx)]
+)
+samesample = table(
+  data[data$node.Sample == data$nn.Sample,
+       c("node.Clusters2", "nn.Clusters2")])
+differentsample = table(
+  data[data$node.Sample != data$nn.Sample,
+       c("node.Clusters2", "nn.Clusters2")])
+round(100 *
+        (differentsample / sum(differentsample) -
+           samesample / sum(samesample)))
+```
+
+## 6.1 Uniform Manifold Approximation and Projection (UMAP)
+
+```{r}
+proj2 <- addUMAP(
+    ArchRProj = proj2, 
+    reducedDims = "myLSI2", # "myLSI", 
+    name = "UMAP", 
+    # nNeighbors = 30, 
+    # minDist = 0.5, 
+    metric = "cosine"
+)
+
+p1 <- plotEmbedding(
+  ArchRProj = proj2,
+  colorBy = "cellColData",
+  name = "Sample",
+  embedding = "UMAP")
+
+p2 <- plotEmbedding(
+  ArchRProj = proj2,
+  colorBy = "cellColData",
+  name = "Clusters2", # "Clusters",
+  embedding = "UMAP")
+
+ggAlignPlots(p1, p2, type = "h")
+
+plotPDF(
+  p1,p2,
+  name = "Plot-UMAP-Sample-Clusters.pdf",
+  ArchRProj = proj2,
+  addDOC = FALSE,
+  width = 5,
+  height = 5)
+```
+
+## 7.3 Identifying Marker Genes
+
+```{r}
+markersGS <- getMarkerFeatures(
+    ArchRProj = proj2, 
+    useMatrix = "GeneScoreMatrix", 
+    groupBy = "Clusters2", # "Clusters",
+    bias = c("TSSEnrichment", "log10(nFrags)"),
+    testMethod = "wilcoxon"
+)
+
+markerList <- getMarkers(
+  markersGS,
+  cutOff = "FDR <= 0.01 & Log2FC >= 1.25")
+markerList$C6
+
+markerGenes = c(
+  "Alb", "Apoc3", "Cyp2e1", "Cyp2f4",
+  "Epcam", "Krt19",
+  "Dcn", "Des", "Lrat",
+  "Stab2",
+  "Csf3r",
+  "Elane", "Ly6g6c", "Ly6g6d", "Ly6g6e", "Mpo",
+  "Csf1r",
+  "Lyz2",
+  "Marco",
+  "Ebf1",
+  "Cd3g", "Gata3",
+  "Gzma", "Prf1"
+)
+heatmapGS <- plotMarkerHeatmap(
+  seMarker = markersGS, 
+  cutOff = "FDR <= 0.01 & Log2FC >= 1.25", 
+  labelMarkers = markerGenes,
+  transpose = TRUE
+)
+ComplexHeatmap::draw(heatmapGS, heatmap_legend_side = "bot", annotation_legend_side = "bot")
+```
+
+## 7.4 Visualizing Marker Genes on an Embedding
+
+```{r}
+p <- plotEmbedding(
+    ArchRProj = proj2, 
+    colorBy = "GeneScoreMatrix", 
+    name = markerGenes, 
+    embedding = "UMAP",
+    quantCut = c(0.01, 0.95),
+    imputeWeights = NULL
+)
+p2 <- lapply(p, function(x){
+    x + guides(color = FALSE, fill = FALSE) + 
+    theme_ArchR(baseSize = 6.5) +
+    theme(plot.margin = unit(c(0, 0, 0, 0), "cm")) +
+    theme(
+        axis.text.x=element_blank(), 
+        axis.ticks.x=element_blank(), 
+        axis.text.y=element_blank(), 
+        axis.ticks.y=element_blank()
+    )
+})
+do.call(cowplot::plot_grid, c(list(ncol = 3),p2))
+plotPDF(plotList = p, 
+    name = "Plot-UMAP-Marker-Genes-WO-Imputation.pdf", 
+    ArchRProj = proj2, 
+    addDOC = FALSE, width = 5, height = 5)
+```
+
+## 7.5 Marker Genes Imputation with MAGIC
+
+```{r}
+proj2 <- addImputeWeights(
+  proj2,
+  reducedDims = "myLSI2") # "myLSI"
+
+p <- plotEmbedding(
+    ArchRProj = proj2, 
+    colorBy = "GeneScoreMatrix", 
+    name = markerGenes, 
+    embedding = "UMAP",
+    imputeWeights = getImputeWeights(proj2)
+)
+p2 <- lapply(p, function(x){
+    x + guides(color = FALSE, fill = FALSE) + 
+    theme_ArchR(baseSize = 6.5) +
+    theme(plot.margin = unit(c(0, 0, 0, 0), "cm")) +
+    theme(
+        axis.text.x=element_blank(), 
+        axis.ticks.x=element_blank(), 
+        axis.text.y=element_blank(), 
+        axis.ticks.y=element_blank()
+    )
+})
+do.call(cowplot::plot_grid, c(list(ncol = 3),p2))
+plotPDF(plotList = p, 
+    name = "Plot-UMAP-Marker-Genes-W-Imputation.pdf", 
+    ArchRProj = proj2, 
+    addDOC = FALSE, width = 5, height = 5)
+```
+
+## 7.6 Track Plotting with ArchRBrowser
+
+```{r}
+p <- plotBrowserTrack(
+    # ArchRProj = proj2, 
+    # groupBy = "Clusters2", # "Clusters"
+    ArchRProj = proj6, 
+    groupBy = "Clusters4",
+    geneSymbol = markerGenes, 
+    upstream = 50000,
+    downstream = 50000
+)
+
+# grid::grid.newpage()
+# grid::grid.draw(p$Cyp2e1)
+
+plotPDF(plotList = p, 
+    name = "Plot-Tracks-Marker-Genes.pdf", 
+    # ArchRProj = proj2, 
+    ArchRProj = proj6, 
+    addDOC = FALSE, width = 5, height = 5)
+```
+
+B-cell (Ebf1) vs T-cell (Cd3g, Gata3) / Tc & NK (Gzma, Prf1)
+separate in Clusters2?
+Yes: adjvar03 adjvar04
+No:  150Ktopvar adjvar02 adjvar05
+
+## 7.7 Launching the ArchRBrowser
+
+```{r}
+ArchRBrowser(proj2)
+```
+
+## 9.2 Making Pseudo-bulk Replicates
+
+Don't run this in parallel.
+
+```{r}
+proj4 <- addGroupCoverages(
+  ArchRProj = proj2,
+  groupBy = "Clusters2") # "Clusters"
+```
+
+## 10.2 Calling Peaks w/ Macs2
+
+```{r}
+pathToMacs2 <- "/usr/local/anaconda2/bin/macs2"
+```
+
+Below took 185.841 mins
+266.104 mins
+
+```{r}
+Sys.setenv(HDF5_USE_FILE_LOCKING = "FALSE")
+proj4 <- addReproduciblePeakSet(
+    ArchRProj = proj4, 
+    groupBy = "Clusters2", # "Clusters"
+    pathToMacs2 = pathToMacs2,
+    genomeSize = 2743300000
+)
+
+getPeakSet(proj4)
+```
+
+## 10.4 Add Peak Matrix
+
+```{r}
+# saveArchRProject(
+#   ArchRProj = proj4,
+#   outputDirectory = "Save-Proj4",
+#   load = FALSE)
+proj4 = loadArchRProject("Save-Proj4/")
+
+# saveArchRProject(
+#   ArchRProj = proj4,
+#   # outputDirectory = "Save-Proj4.featurenormbyscale2",
+#   # outputDirectory = "Save-Proj4.adjvar02.featurenormbyscale2",
+#   # outputDirectory = "Save-Proj4.adjvar03.featurenormbyscale2",
+#   # outputDirectory = "Save-Proj4.adjvar04.featurenormbyscale2",
+#   # outputDirectory = "Save-Proj4.adjvar05.featurenormbyscale2",
+#   outputDirectory = "Save-Proj4.adjvar04Leiden.featurenormbyscale2",
+#   load = FALSE)
+proj4 = loadArchRProject("Save-Proj4.featurenormbyscale2/")
+proj4 = loadArchRProject("Save-Proj4.adjvar04.featurenormbyscale2/")
+proj4 = loadArchRProject("Save-Proj4.adjvar04Leiden.featurenormbyscale2/")
+
+# This needs executed only once
+# proj5 <- addPeakMatrix(proj4)
+proj5 = proj4
+
+getAvailableMatrices(proj5)
+```
+
+## Clustering based on peaks
+
+Load peak matrix
+
+```{r}
+mat = getMatrixFromProject(
+  proj5,
+  useMatrix = "PeakMatrix",
+  binarize = TRUE)
+dim(mat) # 649863 13208 adjvar04Leiden
+```
+
+QC
+
+```{r}
+# Compute Col Sums
+colSm <- Matrix::colSums(assay(mat))
+
+# Clean up zero rows
+# Actually redundant, because later filtered by adjvar
+rowSm <- Matrix::rowSums(assay(mat))
+idx <- which(rowSm > 1)
+mat <- mat[idx, ]
+rowSm <- rowSm[idx]
+
+# exclude a small number of ~100% inserted windows
+# Actually redundant, because later filtered by adjvar
+idx <- which(rowSm/ncol(mat) < 0.85)
+mat <- mat[idx, ]
+rowSm <- rowSm[idx]
+
+rowSmnorm = rowSm / sqrt(sum(rowSm^2))
+```
+
+Smaller submatrix for faster computation
+
+```{r}
+adjvarmin = 0.1 0.2 0.3 0.4 0.5
+
+# variance after IDF weighting
+adjvar = log2(ncol(mat)/rowSm)^2 *
+  (rowSm/ncol(mat)) *
+  (1 - rowSm/ncol(mat))
+
+qplot(
+  x = rowSm/ncol(mat),
+  y = adjvar,
+  geom = "bin2d")
+quantile(adjvar, seq(0, 1, 0.1))
+
+idx = which(adjvar > adjvarmin)
+# 607445  adjvar04_adjvar01
+# 597848  adjvar04_adjvar02
+# 515846  adjvar04_adjvar03
+# 408679  adjvar04_adjvar04
+# 306040  adjvar04_adjvar05
+# 649806  adjvar04Leiden_adjvar01
+# 638416  adjvar04Leiden_adjvar02
+# 540439  adjvar04Leiden_adjvar03
+# 419702  adjvar04Leiden_adjvar04
+# 309710  adjvar04Leiden_adjvar05
+
+mat2 = mat[idx, ]
+rowSm2 <- rowSm[idx]
+rowSmnorm2 <- rowSmnorm[idx]
+```
+
+Library size correct to unit vector
+unitsize
+
+```{r}
+assay(mat2) = assay(mat2) %*%
+  Diagonal(x = 1/sqrt(colSums(assay(mat2)^2)))
+```
+
+Sample batch correct mat2
+featurenormbyscale (1st round)
+
+```{r}
+sampleLabels = unique(as.character(mat$Sample))
+
+target = rowMeans(assay(mat2))
+
+# mat2@assays@data@listData[[1]] =
+#   Matrix(mat2@assays@data@listData[[1]],
+#          sparse = FALSE)
+
+for (s in sampleLabels) {
+  print(s)
+  # x = assay(mat2)[, which(mat2$Sample == s), drop = FALSE]
+  x = assay(mat2) %*% Diagonal(x = as.numeric(mat2$Sample == s))
+  y = assay(mat2) %*% Diagonal(x = as.numeric(mat2$Sample != s))
+  rowMeansx = rowSums(x) / sum(mat2$Sample == s)
+  correct = target / rowMeansx
+  correct[rowMeansx == 0] = 1
+  # correct = target / rowMeans(x)
+  # correct[rowMeans(x) == 0] = 1
+  # correct can inflate, especially when sum(x[i,] > 0) = 1, 2
+  # log(correct[correct > 1]) seems to increase linearly in the beginning
+  correctcap =
+    quantile(correct, 0.75, na.rm = TRUE)^2 /
+    quantile(correct, 0.5, na.rm = TRUE)
+  correct = pmin(correct, correctcap)
+  # x = x * correct
+  x = Diagonal(x = correct) %*% x
+
+  # assay(mat2)[, which(mat2$Sample == s), drop = FALSE] = x
+  assay(mat2) = x + y
+  rm(x, y, rowMeansx, correct, correctcap)
+}
+```
+
+IDF (inverse document frequency)
+rowSm2 is calculated from original binary matrix
+
+```{r}
+# assay(mat2) = assay(mat2) * log2(ncol(mat2) / rowSm2)
+assay(mat2) = Diagonal(x = log2(ncol(mat2) / rowSm2)) %*%
+  assay(mat2)
+```
+
+Row centralization is mandatory!
+[Skillicorn, Understanding complex datasets. p.51]
+
+```{r}
+gc()
+set.seed(1)
+
+# assay(mat2) = assay(mat2) - rowMeans(assay(mat2))
+# svd <- irlba::irlba(assay(mat2), 30, 30)
+
+# irlba only provides column centralization, not for rows
+svd <- irlba::irlba(t(assay(mat2)), 30, 30,
+                    center = rowMeans(assay(mat2)))
+svdback = svd
+svd$u = svdback$v
+svd$v = svdback$u
+rm(svdback)
+```
+
+Plot inspection
+
+```{r}
+library(viridisLite);
+
+plotdata = as.data.frame(svd$v)
+plotdata$colSm    = colSm
+plotdata$celltype = mat2$celltype
+plotdata$ploidy   = mat2$ploidy
+plotdata$Sample   = as.character(mat2$Sample)
+
+ggplot(
+  data = plotdata,
+  aes(x = V1,
+      y = V2)) +
+  geom_point(aes(
+    # col = log10(colSm)
+    col = celltype
+    # col = ploidy
+    ),
+    size = 0.1) +
+  # scale_color_gradientn(colours = viridis(256, option = "D")) +
+  facet_grid(rows = vars(Sample)) +
+  geom_rug()
+```
+
+In above plot, higher dimensions appear to be random noise.
+
+```{r}
+dmax = 10
+x = svd$v[, 1:dmax] %*% diag(svd$d[1:dmax])
+rownames(x) = colnames(mat2)
+colnames(x) = paste0("LSI", seq(1, ncol(x)))
+```
+
+```{r}
+table(proj5$cellNames %in% rownames(x))
+proj5@reducedDims[[
+  "myLSI3"
+  ]] <-
+  SimpleList(matDR = x[proj5$cellNames, ],
+             params = list(),
+             date = Sys.time(),
+             scaleDims = NA, 
+             corToDepth = NA)
+
+```
+
+Outliers are apparent in PC1 & PC2
+
+```{r}
+gc()
+# distmat = as.matrix(dist(svd$v[, 1:2]))
+distmat = as.matrix(dist(svd$v[, 1:2] %*% diag(svd$d[1:2])))
+distmat = distmat^2
+distmat = apply(
+  distmat,
+  1,
+  function (x) {
+    sum(head(sort(x), 5 + 1)) # distance to itself is 0
+  })
+plot(log10(sort(distmat)))
+outlier = (distmat > 10^-1.85)
+table(outlier)
+table(outlier, as.character(mat2$Sample))
+notoutlier = colnames(mat2)[! outlier]
+rm(distmat)
+
+ggplot(
+  data = plotdata,
+  aes(x = V1,
+      y = V2)) +
+  geom_point(aes(col = outlier),
+             size = 0.1) +
+  facet_grid(rows = vars(Sample)) +
+  geom_rug()
+```
+
+
+```{r}
+proj5b = proj5[which(proj5$cellNames %in% notoutlier), ]
+proj5b@reducedDims[["myLSI3"]]$matDR =
+  (proj5b@reducedDims[["myLSI3"]]$matDR)[proj5b$cellNames, ]
+```
+
+```{r}
+rm(mat, mat2, svd, x)
+```
+
+```{r}
+proj5b <- addClusters(
+    input = proj5b,
+    reducedDims = "myLSI3",
+    method = "Seurat",
+    algorithm = 4, # Leiden
+    name = "Clusters3",
+    force = TRUE
+)
+table(proj5b$Sample, proj5b$Clusters3)
+```
+
+
+
+```{r}
+table(proj5b$celltype, proj5b$Clusters3)
+
+# adjvar04_adjvar01
+proj5b$Clusterscoarse = NA
+proj5b$Clusterscoarse[
+  proj5b$Clusters3 %in% paste0("C", 4:12)] = "hepatocyte"
+proj5b$Clusterscoarse[
+  proj5b$Clusters3 %in% paste0("C", c(1:3, 13:14))] = "WBC"
+proj5b$Clusterscoarse[
+  proj5b$Clusters3 %in% paste0("C", c(16:17))] = "endothelial cell"
+proj5b$Clusterscoarse[
+  proj5b$Clusters3 %in% paste0("C", 15)] = "stellate"
+
+# adjvar04_adjvar02
+proj5b$Clusterscoarse = NA
+proj5b$Clusterscoarse[
+  proj5b$Clusters3 %in% paste0("C", 3:11)] = "hepatocyte"
+proj5b$Clusterscoarse[
+  proj5b$Clusters3 %in% paste0("C", c(1:2, 12:14))] = "WBC"
+proj5b$Clusterscoarse[
+  proj5b$Clusters3 %in% paste0("C", c(16:18))] = "endothelial cell"
+proj5b$Clusterscoarse[
+  proj5b$Clusters3 %in% paste0("C", 15)] = "stellate"
+
+# adjvar04_adjvar03
+proj5b$Clusterscoarse = NA
+proj5b$Clusterscoarse[
+  proj5b$Clusters3 %in% paste0("C", 5:11)] = "hepatocyte"
+proj5b$Clusterscoarse[
+  proj5b$Clusters3 %in% paste0("C", c(1:4, 12:13))] = "WBC"
+proj5b$Clusterscoarse[
+  proj5b$Clusters3 %in% paste0("C", c(15:16))] = "endothelial cell"
+proj5b$Clusterscoarse[
+  proj5b$Clusters3 %in% paste0("C", 14)] = "stellate"
+
+# adjvar04_adjvar04
+proj5b$Clusterscoarse = NA
+proj5b$Clusterscoarse[
+  proj5b$Clusters3 %in% paste0("C", 5:11)] = "hepatocyte"
+proj5b$Clusterscoarse[
+  proj5b$Clusters3 %in% paste0("C", c(1:4, 12:13))] = "WBC"
+proj5b$Clusterscoarse[
+  proj5b$Clusters3 %in% paste0("C", c(15:16))] = "endothelial cell"
+proj5b$Clusterscoarse[
+  proj5b$Clusters3 %in% paste0("C", 14)] = "stellate"
+
+# adjvar04_adjvar05
+proj5b$Clusterscoarse = NA
+proj5b$Clusterscoarse[
+  proj5b$Clusters3 %in% paste0("C", 4:11)] = "hepatocyte"
+proj5b$Clusterscoarse[
+  proj5b$Clusters3 %in% paste0("C", c(1:3, 12:13))] = "WBC"
+proj5b$Clusterscoarse[
+  proj5b$Clusters3 %in% paste0("C", c(15:16))] = "endothelial cell"
+proj5b$Clusterscoarse[
+  proj5b$Clusters3 %in% paste0("C", 14)] = "stellate"
+
+# adjvar04Leiden_adjvar01Leiden
+proj5b$Clusterscoarse = NA
+proj5b$Clusterscoarse[
+  proj5b$Clusters3 %in% paste0("C", 5:12)] = "hepatocyte"
+proj5b$Clusterscoarse[
+  proj5b$Clusters3 %in% paste0("C", c(1:4, 13:14))] = "WBC"
+proj5b$Clusterscoarse[
+  proj5b$Clusters3 %in% paste0("C", c(16:17))] = "endothelial cell"
+proj5b$Clusterscoarse[
+  proj5b$Clusters3 %in% paste0("C", 15)] = "stellate"
+
+# adjvar04Leiden_adjvar02Leiden
+proj5b$Clusterscoarse = NA
+proj5b$Clusterscoarse[
+  proj5b$Clusters3 %in% paste0("C", 5:13)] = "hepatocyte"
+proj5b$Clusterscoarse[
+  proj5b$Clusters3 %in% paste0("C", c(1:4, 14:15))] = "WBC"
+proj5b$Clusterscoarse[
+  proj5b$Clusters3 %in% paste0("C", c(17:18))] = "endothelial cell"
+proj5b$Clusterscoarse[
+  proj5b$Clusters3 %in% paste0("C", 16)] = "stellate"
+
+# adjvar04Leiden_adjvar03Leiden
+proj5b$Clusterscoarse = NA
+proj5b$Clusterscoarse[
+  proj5b$Clusters3 %in% paste0("C", 5:13)] = "hepatocyte"
+proj5b$Clusterscoarse[
+  proj5b$Clusters3 %in% paste0("C", c(1:4, 14:15))] = "WBC"
+proj5b$Clusterscoarse[
+  proj5b$Clusters3 %in% paste0("C", c(17:18))] = "endothelial cell"
+proj5b$Clusterscoarse[
+  proj5b$Clusters3 %in% paste0("C", 16)] = "stellate"
+
+# adjvar04Leiden_adjvar04Leiden
+proj5b$Clusterscoarse = NA
+proj5b$Clusterscoarse[
+  proj5b$Clusters3 %in% paste0("C", 7:14)] = "hepatocyte"
+proj5b$Clusterscoarse[
+  proj5b$Clusters3 %in% paste0("C", c(3:6, 17:18))] = "WBC"
+proj5b$Clusterscoarse[
+  proj5b$Clusters3 %in% paste0("C", c(15:16))] = "endothelial cell"
+proj5b$Clusterscoarse[
+  proj5b$Clusters3 %in% paste0("C", 1:2)] = "stellate"
+
+# adjvar04Leiden_adjvar05Leiden
+proj5b$Clusterscoarse = NA
+proj5b$Clusterscoarse[
+  proj5b$Clusters3 %in% paste0("C", 5:13)] = "hepatocyte"
+proj5b$Clusterscoarse[
+  proj5b$Clusters3 %in% paste0("C", c(1:4, 14:15))] = "WBC"
+proj5b$Clusterscoarse[
+  proj5b$Clusters3 %in% paste0("C", c(17:18))] = "endothelial cell"
+proj5b$Clusterscoarse[
+  proj5b$Clusters3 %in% paste0("C", 16)] = "stellate"
+
+ClusterscoarseLabels =
+  unique(proj5b$Clusterscoarse)
+
+table(proj5b$celltype, proj5b$Clusterscoarse)
+table(is.na(proj5b$Clusterscoarse))
+```
+
+Load peak matrix
+
+```{r}
+mat = getMatrixFromProject(
+  proj5b,
+  useMatrix = "PeakMatrix",
+  binarize = TRUE)
+```
+
+QC
+
+```{r}
+# Compute Col Sums
+colSm <- Matrix::colSums(assay(mat))
+
+# Clean up zero rows
+# Actually redundant, because later filtered by adjvar
+rowSm <- Matrix::rowSums(assay(mat))
+idx <- which(rowSm > 1)
+mat <- mat[idx, ]
+rowSm <- rowSm[idx]
+
+# exclude a small number of ~100% inserted windows
+# Actually redundant, because later filtered by adjvar
+idx <- which(rowSm/ncol(mat) < 0.85)
+mat <- mat[idx, ]
+rowSm <- rowSm[idx]
+
+rowSmnorm = rowSm / sqrt(sum(rowSm^2))
+```
+
+Smaller submatrix for faster computation
+
+```{r}
+# adjvarmin = 0.1 0.2 0.3 0.4 0.5
+
+# variance after IDF weighting
+adjvar = log2(ncol(mat)/rowSm)^2 *
+  (rowSm/ncol(mat)) *
+  (1 - rowSm/ncol(mat))
+
+idx = which(adjvar > adjvarmin)
+
+mat2 = mat[idx, ]
+rowSm2 <- rowSm[idx]
+rowSmnorm2 <- rowSmnorm[idx]
+```
+
+Library size correct to unit vector
+unitsize
+
+```{r}
+assay(mat2) = assay(mat2) %*%
+  Diagonal(x = 1/sqrt(colSums(assay(mat2)^2)))
+```
+
+Sample batch correct mat2
+featurenormbyscale2 (2nd round)
+
+```{r}
+for (cl in ClusterscoarseLabels) {
+  print(cl)
+  target = rowMeans(
+    assay(mat2)[, which(mat2$Clusterscoarse == cl),
+                drop = FALSE])
+  
+  for (s in sampleLabels) {
+    print(s)
+    x = assay(mat2) %*%
+      Diagonal(x = as.numeric(mat2$Clusterscoarse == cl &
+                                mat2$Sample == s))
+    y = assay(mat2) %*%
+      Diagonal(x = as.numeric(mat2$Clusterscoarse != cl |
+                                mat2$Sample != s))
+    # x = assay(mat2)[, which(mat2$Clusterscoarse == cl &
+    #                           mat2$Sample == s),
+    #                 drop = FALSE]
+    rowMeansx = rowSums(x) / sum(mat2$Clusterscoarse == cl &
+                                   mat2$Sample == s)
+    correct = target / rowMeansx
+    correct[rowMeansx == 0] = 1
+    # correct = target / rowMeans(x)
+    # correct[rowMeans(x) == 0] = 1
+    # correct can inflate, especially when sum(x[i,] > 0) = 1, 2
+    # log(correct[correct > 1]) seems to increase linearly in the beginning
+    correctcap =
+      quantile(correct, 0.75, na.rm = TRUE)^2 /
+      quantile(correct, 0.5, na.rm = TRUE)
+    correct = pmin(correct, correctcap)
+    x = Diagonal(x = correct) %*% x
+    # x = x * correct
+    
+    # assay(mat2)[, which(mat2$Clusterscoarse == cl &
+    #                       mat2$Sample == s),
+    #             drop = FALSE] = x
+    assay(mat2) = x + y
+    rm(x, y, rowMeansx, correct, correctcap)
+  }
+}
+```
+
+IDF (inverse document frequency)
+rowSm2 is calculated from original binary matrix
+
+```{r}
+assay(mat2) = Diagonal(x = log2(ncol(mat2) / rowSm2)) %*%
+  assay(mat2)
+```
+
+Row centralization is mandatory!
+[Skillicorn, Understanding complex datasets. p.51]
+
+```{r}
+gc()
+set.seed(1)
+
+# assay(mat2) = assay(mat2) - rowMeans(assay(mat2))
+# svd <- irlba::irlba(assay(mat2), 30, 30)
+
+# irlba only provides column centralization, not for rows
+svd <- irlba::irlba(t(assay(mat2)), 30, 30,
+                    center = rowMeans(assay(mat2)))
+svdback = svd
+svd$u = svdback$v
+svd$v = svdback$u
+rm(svdback)
+```
+
+
+Doesn't work:
+
+```{r}
+adjvarmin = 0.5 # 0.1 0.2 0.3 0.4 0.5
+LSIlist = lapply(
+  ClusterscoarseLabels,
+  function(cl) {
+    print(cl)
+    
+    mat2 = mat[, which(mat$Clusterscoarse == cl)]
+    
+    #Clean up zero/singleton rows
+    rowSm2 <- Matrix::rowSums(assay(mat2))
+    idx <- which(rowSm2 > 1)
+    mat2 <- mat2[idx, ]
+    rowSm2 <- rowSm2[idx]
+    
+    # exclude a small number of ~100% inserted windows
+    idx <- which(rowSm2/ncol(mat2) < 0.85)
+    mat2 <- mat2[idx, ]
+    rowSm2 <- rowSm2[idx]
+    
+    # variance after IDF weighting
+    adjvar = log2(ncol(mat2)/rowSm2)^2 *
+      (rowSm2/ncol(mat2)) *
+      (1 - rowSm2/ncol(mat2))
+    idx = which(adjvar > adjvarmin)
+    mat2 = mat2[idx, ]
+    rowSm2 <- rowSm2[idx]
+    
+    assay(mat2) = assay(mat2) %*%
+      Diagonal(x = 1/sqrt(colSums(assay(mat2)^2)))
+    
+    target = rowMeans(assay(mat2))
+    
+    for (s in sampleLabels) {
+      print(s)
+      x = assay(mat2) %*%
+        Diagonal(x = as.numeric(mat2$Sample == s))
+      y = assay(mat2) %*%
+        Diagonal(x = as.numeric(mat2$Sample != s))
+      
+      rowMeansx = rowSums(x) / sum(mat2$Sample == s)
+      correct = target / rowMeansx
+      correct[rowMeansx == 0] = 1
+      # correct can inflate, especially when sum(x[i,] > 0) = 1, 2
+      # log(correct[correct > 1]) seems to increase linearly in the beginning
+      correctcap =
+        quantile(correct, 0.75, na.rm = TRUE)^2 /
+        quantile(correct, 0.5, na.rm = TRUE)
+      correct = pmin(correct, correctcap)
+      x = Diagonal(x = correct) %*% x
+      # x = x * correct
+      assay(mat2) = x + y
+      rm(x, y, rowMeansx, correct, correctcap)
+    }
+    
+    assay(mat2) = Diagonal(x = log2(ncol(mat2) / rowSm2)) %*%
+      assay(mat2)
+    
+    gc()
+    set.seed(1)
+    svd <- irlba::irlba(t(assay(mat2)), 30, 30,
+                        center = rowMeans(assay(mat2)))
+    svdback = svd
+    svd$u = svdback$v
+    svd$v = svdback$u
+    rm(svdback)
+    
+    # nPC computed by Auer-Gervini approach of PCDimension package
+    # Same as below
+    # spca = ClassDiscovery::SamplePCA(YadjX1W)
+    # agDimension(AuerGervini(spca))
+    # agDimension(AuerGervini(spca@variances, dd = dim(YadjX1W)))
+    dmax = PCDimension::agDimension(PCDimension::AuerGervini(
+      Lambda = (svd$d)^2,
+      dd = c(nrow(svd$u), nrow(svd$v))))
+    if (dmax == 0) {
+      print("Top 0 PC(s) are significant.")
+      dmax = 1 }
+    print(paste0("Top ", dmax, " PC(s) are used."))
+    
+    if (dmax == 1) {
+      x = svd$v[, 1:dmax, drop = FALSE] * svd$d[1:dmax]
+    } else {
+      x = svd$v[, 1:dmax, drop = FALSE] %*% diag(svd$d[1:dmax])
+    }
+    rownames(x) = colnames(mat2)
+    return(x)
+  }
+)
+
+coldim =
+  max(sapply(LSIlist, function (x) { dim(x)[2] }))
+LSIlist = lapply(
+  LSIlist,
+  function (x) {
+    cbind(
+      x,
+      matrix(0, nrow = nrow(x), ncol = coldim - ncol(x)))
+  })
+maxelement =
+  max(sapply(LSIlist, function (x) { max(x) }))
+x = cbind(0, LSIlist[[1]])
+for (i in 2:length(LSIlist)) {
+  x = rbind(x,
+            cbind(i * ceiling(maxelement) * 1e3,
+                  LSIlist[[i]]))
+}
+colnames(x) = paste0("LSI", seq(1, ncol(x)))
+  
+
+table(proj5b$cellNames %in% rownames(x))
+proj5b@reducedDims[[
+  "myLSI4"
+]] <-
+  SimpleList(matDR = x[proj5b$cellNames, ],
+             params = list(),
+             date = Sys.time(),
+             scaleDims = NA, 
+             corToDepth = NA)
+
+# rm(mat, mat2, svd, x)
+
+proj5b <- addClusters(
+  input = proj5b,
+  reducedDims = "myLSI4",
+  method = "Seurat",
+  algorithm = 4,
+  name = "Clusters4",
+  force = TRUE,
+)
+table(proj5b$Sample, proj5b$Clusters4)
+
+```
+
+
+Plot inspection
+
+```{r}
+library(viridisLite);
+
+plotdata = as.data.frame(svd$v)
+plotdata$celltype  = mat2$celltype
+plotdata$ploidy    = mat2$ploidy
+plotdata$Clusters2 = mat2$Clusters2
+plotdata$Sample    = as.character(mat2$Sample)
+p1 =
+ggplot(
+  data = plotdata,
+  aes(x = V9,
+      y = V10)) +
+  geom_point(aes(
+    col = celltype
+    # col = ploidy
+    ),
+    size = 0.1) +
+  facet_grid(rows = vars(Sample)) +
+  geom_rug()
+ggsave("foo.pdf", p1)
+```
+
+In above plot, higher dimensions appear to be random noise.
+
+```{r}
+dmax = 8
+x = svd$v[, 1:dmax] %*% diag(svd$d[1:dmax])
+rownames(x) = colnames(mat2)
+colnames(x) = paste0("LSI", seq(1, ncol(x)))
+```
+
+```{r}
+table(proj5b$cellNames %in% rownames(x))
+proj5b@reducedDims[[
+  "myLSI4"
+]] <-
+  SimpleList(matDR = x[proj5b$cellNames, ],
+             params = list(),
+             date = Sys.time(),
+             scaleDims = NA, 
+             corToDepth = NA)
+
+```
+
+```{r}
+rm(mat, mat2, svd, x)
+```
+
+
+```{r}
+proj5b <- addClusters(
+    input = proj5b,
+    reducedDims = "myLSI4",
+    method = "Seurat",
+    algorithm = 4,
+    name = "Clusters4", # Leiden
+    force = TRUE
+)
+table(proj5b$celltype, proj5b$Clusters4, proj5b$Sample)
+table(proj5b$celltype, proj5b$Clusters4)
+
+table(proj5b$Sample, proj5b$Clusters4)
+```
+
+adjvar04Leiden_adjvar01Leiden Clusters4
+1-10   hepatocyte
+11-12  stellate
+14-16  endothelial cell
+13, 18 macrophage, neutrophil
+19     B-cell
+17     T-cell, NK cell
+
+```{r}
+proj6 = proj5b
+
+saveArchRProject(
+  ArchRProj = proj6,
+  # outputDirectory = "Save-Proj6.adjvar04Leiden_adjvar01Leiden.featurenormbyscale2",
+  # outputDirectory = "Save-Proj6.adjvar04Leiden_adjvar02Leiden.featurenormbyscale2",
+  # outputDirectory = "Save-Proj6.adjvar04Leiden_adjvar03Leiden.featurenormbyscale2",
+  # outputDirectory = "Save-Proj6.adjvar04Leiden_adjvar04Leiden.featurenormbyscale2",
+  outputDirectory = "Save-Proj6.adjvar04Leiden_adjvar05Leiden.featurenormbyscale2",
+  dropCells = TRUE
+)
+proj6 = loadArchRProject("Save-Proj6.adjvar04Leiden_adjvar01Leiden.featurenormbyscale2/")
+```
+
+```{r}
+proj6 <- addClusters(
+    input = proj6,
+    reducedDims = "myLSI4",
+    method = "Seurat",
+    algorithm = 4,
+    resolution = 0.5,
+    name = "Clusters4res05", # Leiden
+    force = TRUE
+)
+```
+
+adjvar04Leiden_adjvar01Leiden Clusters4res05
+1-7   hepatocyte
+12    stellate
+13-14 endothelial cell
+8-9   macrophage, neutrophil
+11    B-cell
+10    T-cell, NK cell
+
+adjvar04Leiden_adjvar01Leiden Clusters4res02
+1-3  hepatocyte
+6    stellate
+7    endothelial cell
+4    macrophage, neutrophil
+5    B-cell, T-cell, NK cell
+
+adjvar04Leiden_adjvar01Leiden Clusters4res015
+1-2  hepatocyte (C2 is neither portal node nor central vein)
+5    stellate
+6    endothelial cell
+3    macrophage, neutrophil
+4    B-cell, T-cell, NK cell
+
+
+```{r}
+g = proj6$Clusters4res05
+g[g %in% paste0("C", 1:7)] = "hepatocyte"
+g[g %in% paste0("C", 8:11)] = "WBC"
+g[g %in% paste0("C", 12)] = "stellate"
+g[g %in% paste0("C", 13:14)] = "endothelial"
+proj6$Clusterscoarse2 = g
+
+g = proj6$Clusters4res05
+g[g %in% paste0("C", 1:7)] = "hepato"
+g[g %in% paste0("C", 8:9)] = "myelo"
+g[g %in% paste0("C", 10)] = "T_NK"
+g[g %in% paste0("C", 11)] = "B"
+g[g %in% paste0("C", 12)] = "stellate"
+g[g %in% paste0("C", 13:14)] = "endothelial"
+proj6$Clusters4BTmyelo = g
+
+g = proj6$Sample
+g[g %in% c("m154207", "m167203")] = "HFC"
+g[g %in% c("m168101")] = "washout"
+g[g %in% c("m154211", "m167108")] = "sp"
+proj6$diet = g
+
+g = proj6$Sample
+g[g %in% c("m154211", "m167108")] = "sp"
+proj6$spdietcombined = g
+
+proj6$Clusters4BTmyelodiet =
+  paste0(proj6$Clusters4BTmyelo,
+         "_",
+         proj6$diet)
+
+proj6$Clusters4BTmyelospdietcombined =
+  paste0(proj6$Clusters4BTmyelo,
+         "_",
+         proj6$spdietcombined)
+```
+
+Don't run this in parallel.
+
+```{r}
+proj6 <- addGroupCoverages(
+  ArchRProj = proj6,
+  groupBy = "Clusters4res05")
+```
+
+## DeconPeaker
+
+For proper quantile normalization, include all peaks from genome.
+
+```{r}
+x = getMatrixFromProject(proj6, useMatrix = "PeakMatrix")
+xrowMeans = rowMeans(assay(x))
+qplot(
+  x = 1:length(xrowMeans),
+  y = log10(sort(xrowMeans)),
+  geom = "point")
+quantile(xrowMeans, c(0.25, 0.5, 0.75))
+#        25%        50%        75% 
+# 0.01317084 0.02490349 0.04995837
+# 0.01183432 0.02253072 0.04574420
+quantile(xrowMeans, seq(0.9, 1, 0.01))
+xmax = quantile(xrowMeans, 0.99) # 0.6837174 0.6525095
+idx = which(xrowMeans < xmax)
+x = x[idx, ]
+
+output = data.frame(
+  chrom = seqnames(x),
+  start = start(x),
+  end = end(x)
+)
+# cg = proj4@projectMetadata$GroupCoverages$Clusters2$Params$cellGroups
+cg = proj6@projectMetadata$GroupCoverages$Clusters4res05$Params$cellGroups
+# cg = proj6@projectMetadata$GroupCoverages$Clusters4res02$Params$cellGroups
+for (g in names(cg)) {
+  for (s in names(cg[[g]])) {
+    cells = cg[[g]][[s]]
+    idx = which(colnames(x) %in% cells)
+    output[, paste0(g, "._.", s)] =
+      rowSums(assay(x)[, idx])
+  }
+}
+```
+
+Check the peak matrix aggregated by groups.
+
+```{r}
+foo = output[, -c(1:3)]
+cg = colnames(foo)
+g = sub("\\..*", "", cg)
+
+i = "C1"; j = "C10"
+dataplot = data.frame(
+  imean = rowMeans(foo[, g == i]),
+  jmean = rowMeans(foo[, g == j]),
+  isd   = rowSds(as.matrix(foo[, g == i])),
+  jsd   = rowSds(as.matrix(foo[, g == j]))
+)
+ggplot(
+  data = dataplot,
+  aes(
+    x = log10(imean),
+    y = log10(jmean)
+    # y = isd / imean  # coefficient of variation 0.5-1
+    # x = log10(imean + jmean) / 2,
+    # y = log10(jmean / imean)
+  )) +
+  geom_bin2d() +
+  scale_fill_gradient(name = "count", trans = "log10") +
+  geom_abline(slope = 1, intercept = 0)
+```
+
+* imean
+  + The correct scale for is log; Majority of data within 0.5-10
+* coefficient of variation isd / imean
+  + 0.5-1
+  + biological noise + technical error
+
+```{r}
+foo = output[, -c(1:3)]
+foo = foo / matrix(sqrt(colSums(foo^2)), nrow = nrow(foo), ncol = ncol(foo), byrow = TRUE)
+foo = foo * log2(ncol(foo) / rowSums(foo))
+foo = foo - rowMeans(foo)
+foosvd = svd(foo)
+dataplot = as.data.frame(foosvd$v)
+dataplot$label = colnames(foo)
+ggplot(
+  data = dataplot,
+  aes(x = V1,
+      y = V2)) +
+  geom_text(
+    aes(label = label),
+    size = 2)
+dataplot[, c("V1", "V2", "label")]
+
+# Inspect features selected (below) by DeconPeaker
+dp = read.table(
+  "../DeconPeaker/findctsps.Clusterscoarse/PROFILE_signature_matrix.xls",
+  # "../DeconPeaker/findctsps.Clusters2WBC/PROFILE_signature_matrix.xls",
+  # "../DeconPeaker/findctsps.Clusters2stellate/PROFILE_signature_matrix.xls",
+  # "../DeconPeaker/findctsps.Clusters2endothelial/PROFILE_signature_matrix.xls",
+  sep = "\t",
+  header = TRUE)
+ov = GenomicRanges::findOverlaps(
+      x@rowRanges,
+      makeGRangesFromDataFrame(dp[, c("chrom", "start", "end")]),
+      select = "first")
+ov = !is.na(ov)
+qplot(
+  x = ov,
+  y = rowSds(as.matrix(foo)),
+  geom = "boxplot")
+foosvd = svd(foo[ov, ])
+dataplot = as.data.frame(foosvd$v)
+dataplot$label = colnames(foo)
+ggplot(
+  data = dataplot,
+  aes(x = V1,
+      y = V2)) +
+  geom_text(
+    aes(label = label),
+    size = 2)
+dataplot[, c("V1", "V2", "label")]
+```
+
+Write DeconPeaker input files.
+
+```{r}
+write.table(
+  output,
+  file = "../DeconPeaker/PROFILE.txt",
+  row.names = FALSE,
+  quote = FALSE,
+  sep = "\t"
+)
+```
+
+Quantile normalization of pseudo bulks by myself and
+obtain approximate nuclei count.
+
+```{r}
+foo = output[, -c(1:3)]
+cg = colnames(foo)
+g = sub("\\..*", "", cg)
+s = sub(".*\\.", "", cg)
+fooqn = preprocessCore::normalize.quantiles(as.matrix(foo))
+colnames(fooqn) = cg
+
+cgcount =
+  unlist(lapply(
+    proj6@projectMetadata$GroupCoverages$Clusters4res05$Params$cellGroups,
+    function (g) { lapply(g, length) }))
+all(sub("\\._\\.", ".", cg) == names(cgcount))
+
+x = (s %in% proj6$Sample) # omit "Other" etc.
+foo     = foo[, x]
+fooqn   = fooqn[, x]
+cg      = cg[x]
+g       = g[x]
+s       = s[x]
+cgcount = cgcount[x]
+
+fooqncount =
+  colSums(fooqn) / colSums(as.matrix(foo)) * cgcount
+
+sunique = sort(unique(s))
+smat = do.call(
+  rbind,
+  lapply(s, function (s) {1 * (s == sunique)}))
+colnames(smat) = sunique
+
+gunique = unique(g)
+gunique = gunique[order(as.numeric(sub("C", "", gunique)))]
+gmat = do.call(
+  rbind,
+  lapply(g, function (g) {1 * (g == gunique)}))
+colnames(gmat) = gunique
+
+# factor out the counts by group and sample
+a0 = lm(
+  log(fooqncount) ~ . + 0,
+  data = as.data.frame(cbind(fooqncount, gmat, smat[, -1])))
+summary(a0)
+
+qncountfactor = exp(a0$coefficients)
+qncountfactor = c(1, qncountfactor)
+names(qncountfactor)[1] = sunique[1]
+plot(qncountfactor[gunique])
+
+qncountfactoradditivemean = qncountfactor
+x = mean(qncountfactoradditivemean[paste0("C", 1:7)]) # 165.0143903
+names(x) = "hepato"
+qncountfactoradditivemean = c(qncountfactoradditivemean, x)
+x = mean(qncountfactoradditivemean[paste0("C", 8:11)]) # 399.1505866
+names(x) = "WBC"
+qncountfactoradditivemean = c(qncountfactoradditivemean, x)
+x = mean(qncountfactoradditivemean[paste0("C", 12)]) # 308.9983541
+names(x) = "stellate"
+qncountfactoradditivemean = c(qncountfactoradditivemean, x)
+x = mean(qncountfactoradditivemean[paste0("C", 13:14)]) # 525.2607770
+names(x) = "endothelial"
+qncountfactoradditivemean = c(qncountfactoradditivemean, x)
+x = mean(qncountfactoradditivemean[paste0("C", 8:9)])
+names(x) = "myelo"
+qncountfactoradditivemean = c(qncountfactoradditivemean, x)
+x = mean(qncountfactoradditivemean[paste0("C", 10)])
+names(x) = "T_NK"
+qncountfactoradditivemean = c(qncountfactoradditivemean, x)
+x = mean(qncountfactoradditivemean[paste0("C", 11)])
+names(x) = "B"
+qncountfactoradditivemean = c(qncountfactoradditivemean, x)
+
+qncountfactorarithmeticmean = qncountfactor
+x = 1/mean(1/qncountfactorarithmeticmean[paste0("C", 1:7)]) # 148.1783945
+names(x) = "hepato"
+qncountfactorarithmeticmean = c(qncountfactorarithmeticmean, x)
+x = 1/mean(1/qncountfactorarithmeticmean[paste0("C", 8:11)]) # 372.2661055
+names(x) = "WBC"
+qncountfactorarithmeticmean = c(qncountfactorarithmeticmean, x)
+x = 1/mean(1/qncountfactorarithmeticmean[paste0("C", 12)]) # 308.9983541
+names(x) = "stellate"
+qncountfactorarithmeticmean = c(qncountfactorarithmeticmean, x)
+x = 1/mean(1/qncountfactorarithmeticmean[paste0("C", 13:14)]) # 460.6685416
+names(x) = "endothelial"
+qncountfactorarithmeticmean = c(qncountfactorarithmeticmean, x)
+x = 1/mean(1/qncountfactorarithmeticmean[paste0("C", 8:9)])
+names(x) = "myelo"
+qncountfactorarithmeticmean = c(qncountfactorarithmeticmean, x)
+x = 1/mean(1/qncountfactorarithmeticmean[paste0("C", 10)])
+names(x) = "T_NK"
+qncountfactorarithmeticmean = c(qncountfactorarithmeticmean, x)
+x = 1/mean(1/qncountfactorarithmeticmean[paste0("C", 11)])
+names(x) = "B"
+qncountfactorarithmeticmean = c(qncountfactorarithmeticmean, x)
+
+x = exp(mean(log(qncountfactor[paste0("C", 1:7)]))) # 156.2552176
+names(x) = "hepato"
+qncountfactor = c(qncountfactor, x)
+x = exp(mean(log(qncountfactor[paste0("C", 8:11)]))) # 386.3771022
+names(x) = "WBC"
+qncountfactor = c(qncountfactor, x)
+x = exp(mean(log(qncountfactor[paste0("C", 12)]))) # 308.9983541
+names(x) = "stellate"
+qncountfactor = c(qncountfactor, x)
+x = exp(mean(log(qncountfactor[paste0("C", 13:14)]))) # 491.9055967
+names(x) = "endothelial"
+qncountfactor = c(qncountfactor, x)
+x = exp(mean(log(qncountfactor[paste0("C", 8:9)])))
+names(x) = "myelo"
+qncountfactor = c(qncountfactor, x)
+x = exp(mean(log(qncountfactor[paste0("C", 10)])))
+names(x) = "T_NK"
+qncountfactor = c(qncountfactor, x)
+x = exp(mean(log(qncountfactor[paste0("C", 11)])))
+names(x) = "B"
+qncountfactor = c(qncountfactor, x)
+```
+
+
+```{r}
+cg = colnames(output)[-c(1:3)]
+g = sub("\\..*", "", cg)
+# # Clusters2
+# g[g %in% paste0("C", 1:9)] = "hepato"
+# g[g %in% paste0("C", 10:12)] = "WBC"
+# g[g %in% paste0("C", 13:14)] = "stellate"
+# g[g %in% paste0("C", 15:17)] = "endothelial"
+# adjvar04Leiden_adjvar01Leiden Clusters4res05
+g[g %in% paste0("C", 1:7)] = "hepato"
+# g[g %in% paste0("C", 8:11)] = "WBC"
+g[g %in% paste0("C", 8:9)] = "myelo"
+g[g %in% paste0("C", 10)] = "T_NK"
+g[g %in% paste0("C", 11)] = "B"
+g[g %in% paste0("C", 12)] = "stellate"
+g[g %in% paste0("C", 13:14)] = "endothelial"
+# # adjvar04Leiden_adjvar01Leiden Clusters4res02
+# g[g %in% paste0("C", 1:3)] = "hepato"
+# g[g %in% paste0("C", 4:5)] = "WBC"
+# g[g %in% paste0("C", 6)] = "stellate"
+# g[g %in% paste0("C", 7)] = "endothelial"
+
+PHENOTYPE =
+  sapply(
+    unique(g),
+    function (x) {2 - (g == x)}
+  )
+PHENOTYPE = as.data.frame(t(PHENOTYPE))
+colnames(PHENOTYPE) = cg
+write.table(
+  PHENOTYPE,
+  file =
+    # "../DeconPeaker/PHENOTYPE.Clusters2.txt",
+    # "../DeconPeaker/PHENOTYPE.Clusters2hepato.txt",
+    # "../DeconPeaker/PHENOTYPE.Clusters2WBC.txt",
+    # "../DeconPeaker/PHENOTYPE.Clusters2stellate.txt",
+    # "../DeconPeaker/PHENOTYPE.Clusters2endothelial.txt",
+    # "../DeconPeaker/PHENOTYPE.hepatocombined.txt",
+    # "../DeconPeaker/PHENOTYPE.Clusterscoarse.txt",
+    # "../DeconPeaker/PHENOTYPE.Clusters4hepato.txt",
+    # "../DeconPeaker/PHENOTYPE.Clusters4WBC.txt",
+    "../DeconPeaker/PHENOTYPE.Clusters4BTmyelo.txt",
+    # "../DeconPeaker/PHENOTYPE.Clusters4endothelial.txt",
+    row.names = TRUE,
+  quote = FALSE,
+  sep = "\t"
+)
+```
+
+```{bash}
+python deconPeaker.py findctsps -l ATAC-Seq --profile ~/human/rat_singlecell/DeconPeaker/PROFILE.txt --phenotype ~/human/rat_singlecell/DeconPeaker/PHENOTYPE.txt --norm QN -t 12 -o ~/human/rat_singlecell/DeconPeaker/
+
+perl -ne 'if ($. > 1){$_ =~ s/^chr//}; print' < PROFILE_signature_matrix.xls > PROFILE_signature_matrix.wochr.xls
+
+python deconPeaker.py deconvolution -l ATAC-Seq --mixture ~/human/rat_singlecell/DeconPeaker/MIXTURE.yaml --pure ~/human/rat_singlecell/DeconPeaker/findctsps/PROFILE_signature_matrix.wochr.xls -f BAM --method SIMPLS --pvalue TRUE -t 12 -o ~/human/rat_singlecell/DeconPeaker/
+```
+
+`Clusterscoarse` is most reliable.
+Subdivide each coarse proportion according to
+`Clusters2WBC`, `Clusters2stellate` and `Clusters2endothelial`.
+
+empirical noise
+
+```{r}
+foo = output[, -c(1:3)]
+cg = colnames(foo)
+g = sub("\\..*", "", cg)
+foo = preprocessCore::normalize.quantiles(as.matrix(foo))
+colnames(foo) = cg
+# for (i in unique(g)) {
+#   foo[, g == i] = foo[, g == i] - rowMeans(foo[, g == i])
+# }
+# goo = rowSds(foo)
+goo = sqrt(rowMeans(
+  sapply(
+    unique(g),
+    function (i) { rowVars(foo[, g == i]) })))
+
+outputnoise = output[, 1:3]
+outputnoise$noiseSD = goo
+write.table(
+  outputnoise,
+  file = "../DeconPeaker/NOISE.txt",
+  row.names = FALSE,
+  quote = FALSE,
+  sep = "\t"
+)
+```
+
+Regression by myself
+
+```{r}
+library(pls)
+
+for (radixsig in
+     c("Clusters2endothelial", "Clusters2stellate", "Clusters2WBC",
+       "Clusterscoarse",
+       "hepatocombined")) {
+  for (radixmix in c("20200203", "20201104")) {
+    print(paste(radixsig, radixmix))
+    sig = read.table(
+      paste0("../DeconPeaker/findctsps.",
+             radixsig,
+             "/PROFILE_signature_matrix.wochr.xls"),
+      header = TRUE)
+    mix = read.table(
+      paste0("../DeconPeaker/deconvolution.",
+             radixsig,
+             ".",
+             radixmix,
+             "/mixed_sample_profile_profile.xls"),
+      header = TRUE)
+    foo = read.table(
+      "../DeconPeaker/NOISE.txt",
+      header = TRUE)
+    foo$chrom = sub("^chr", "", foo$chrom)
+    noise = sig[, 1:3]
+    noise = dplyr::left_join(
+      noise,
+      foo,
+      by = c("chrom", "start", "end"))
+    all(sig$chrom == mix$chrom)
+    all(sig$start == mix$start)
+    all(sig$end   == mix$end)
+    sig   = sig[, -c(1:3)]
+    mix   = mix[, -c(1:3)]
+    noise = noise[, -c(1:3)]
+    
+    X = as.matrix(sig)
+    Y = as.matrix(mix)
+    # X_norm <- as.matrix((X - mean(X)) / sd(as.vector(X)))
+    # Y_norm <- as.matrix((Y - mean(Y)) / sd(Y))
+    # I don't agree to centralize
+    # X_norm <- as.matrix((X - mean(X)))
+    # Y_norm <- as.matrix((Y - mean(Y)))
+    X_norm <- as.matrix(X)
+    Y_norm <- as.matrix(Y)
+    
+    # plot(rowSds(X_norm), noise)
+    # plot(
+    #   log10(rowMeans(X_norm)),
+    #   rowSds(X_norm) / rowMeans(X_norm))
+    # plot(
+    #   log10(rowMeans(X_norm)),
+    #   noise / rowMeans(X_norm))
+    
+    w = noise
+    X_norm <- X_norm / w
+    Y_norm <- Y_norm / w
+    
+    model <- mvr(
+      Y_norm ~ X_norm,
+      ncol(X_norm), # As all components are used, actually identical to lm
+      scale = FALSE,
+      validation = 'CV',
+      center = FALSE,
+      method = 'simpls')
+    # model <- lm(Y_norm ~ X_norm + 0)
+    coeffs = coef(model)
+    # coeffs =
+    #   apply(
+    #     Y_norm,
+    #     2,
+    #     function (y) {coef(MASS::rlm(y ~ X_norm + 0))})
+    coeffs = array(
+      coeffs,
+      dim = dim(coeffs)[1:2],
+      dimnames = dimnames(coeffs)[1:2])
+    coeffs[coeffs < 0] = 0
+    coeffs = coeffs /
+      matrix(colSums(coeffs),
+             nrow = nrow(coeffs),
+             ncol = ncol(coeffs),
+             byrow = TRUE)
+    coeffs = as.data.frame(coeffs)
+    coeffs$celltype = rownames(coeffs)
+    p1 =
+      ggplot(
+        data =
+          tidyr::pivot_longer(
+            as.data.frame(coeffs),
+            cols = -"celltype",
+            names_to = "Sample",
+            values_to = "Proportion"),
+        aes(x = Sample,
+            y = Proportion)) +
+      geom_col(
+        aes(fill = celltype)
+      ) +
+      theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5)) +
+      labs(x = NULL)
+    ggsave(
+      paste0("../DeconPeaker/deconvolution.",
+             radixsig,
+             ".",
+             radixmix,
+             "/my-Results.png"),
+      p1,
+      width = 6, height = 4)
+    write.table(coeffs,
+                paste0("../DeconPeaker/deconvolution.",
+                       radixsig,
+                       ".",
+                       radixmix,
+                       "/my-Results.txt"),
+                sep = "\t",
+                quote = FALSE,
+                row.names = FALSE)
+  }
+}
+```
+
+Regression with Bisque correction
+
+```{r}
+proj6$Clusters4BTmyelo = NA
+proj6$Clusters4BTmyelo[proj6$Clusters4res05 %in% paste0("C", 8:9)] = "myelo"
+proj6$Clusters4BTmyelo[proj6$Clusters4res05 %in% paste0("C", 10)] = "T_NK"
+proj6$Clusters4BTmyelo[proj6$Clusters4res05 %in% paste0("C", 11)] = "B"
+```
+
+```{r}
+for (radixsig in c(
+  # "Clusters2endothelial",
+  # "Clusters2stellate",
+  # "Clusters2WBC",
+  "Clusterscoarse",
+  # "hepatocombined"
+  "Clusters4endothelial",
+  # "Clusters4hepato",
+  "Clusters4WBC",
+  "Clusters4BTmyelo"
+)) {
+  print(radixsig)
+  sig = read.table(
+    paste0("../DeconPeaker/findctsps.",
+           radixsig,
+           "/PROFILE_signature_matrix.wochr.xls"),
+    header = TRUE)
+  foo = read.table(
+    "../DeconPeaker/NOISE.txt",
+    header = TRUE)
+  foo$chrom = sub("^chr", "", foo$chrom)
+  noise = sig[, 1:3]
+  noise = dplyr::left_join(
+    noise,
+    foo,
+    by = c("chrom", "start", "end"))
+  
+  mix = lapply(
+    c("20200203", "20201104", "20210107"),
+    function (radixmix) {
+      x = read.table(
+        paste0("../DeconPeaker/deconvolution.",
+               radixsig,
+               ".",
+               radixmix,
+               "/mixed_sample_profile_profile.xls"),
+        header = TRUE)
+      print(all(sig$chrom == x$chrom))
+      print(all(sig$start == x$start))
+      print(all(sig$end   == x$end))
+      x = x[, -c(1:3)]
+      return(x)
+    }
+  )
+  mix = do.call(cbind, mix)
+  # TODO!!! quantile-normalization actually should be done genome-wide
+  # quantile-normalization for the differential features can diminish signal
+  x = colnames(mix)
+  mix =
+    preprocessCore::normalize.quantiles(as.matrix(mix))
+  colnames(mix) = x
+  
+  sig   = sig[, -c(1:3)]
+  noise = noise[, -c(1:3)]
+  
+  celltypecount = 
+    rbind(
+      # table(proj6$Clusters2, proj6$Sample),
+      table(proj6$Clusters4res05, proj6$Sample),
+      table(proj6$Clusterscoarse2, proj6$Sample),
+      table(proj6$Clusters4BTmyelo, proj6$Sample))
+  rownames(celltypecount) =
+    sub("endothelial cell", "endothelial",
+        sub("hepatocyte", "hepato",
+            rownames(celltypecount)))
+  celltypecount = celltypecount[colnames(sig), ]
+  celltypecount = celltypecount /
+    matrix(colSums(celltypecount),
+           nrow = nrow(celltypecount),
+           ncol = ncol(celltypecount),
+           byrow = TRUE)
+  # pseudomix = as.matrix(sig) %*% celltypecount
+  pseudomix = as.matrix(sig) %*% 
+    diag(1 / qncountfactor[colnames(sig)]) %*%
+    # diag(1 / qncountfactorarithmeticmean[colnames(sig)]) %*%
+    celltypecount
+    # celltypecount %*%
+    # diag(1 / qncountfactor[colnames(celltypecount)])
+  colnames(pseudomix) = colnames(celltypecount)
+  pseudomix = pseudomix[, colnames(pseudomix) %in% colnames(mix)]
+  
+  toscale = exp(rowMeans(log(mix[, colnames(pseudomix)] / pseudomix)))
+  # median 906.5 = #nuclei in batch experiment (in scale of snATAC exp 1)
+  # central part is linear in log-scale
+  toscalemax = quantile(toscale, 0.75)^2 / quantile(toscale, 0.5)
+  toscalemin = quantile(toscale, 0.25)^2 / quantile(toscale, 0.5)
+  toscale = pmin(toscale, toscalemax)
+  toscale = pmax(toscale, toscalemin)
+  
+  X = as.matrix(sig)
+  Y = as.matrix(mix / toscale)
+  # X_norm <- as.matrix((X - mean(X)) / sd(as.vector(X)))
+  # Y_norm <- as.matrix((Y - mean(Y)) / sd(Y))
+  # I don't agree to centralize
+  # X_norm <- as.matrix((X - mean(X)))
+  # Y_norm <- as.matrix((Y - mean(Y)))
+  X_norm <- as.matrix(X)
+  Y_norm <- as.matrix(Y)
+  
+  # plot(rowSds(X_norm), noise)
+  # plot(
+  #   log10(rowMeans(X_norm)),
+  #   rowSds(X_norm) / rowMeans(X_norm))
+  # plot(
+  #   log10(rowMeans(X_norm)),
+  #   noise / rowMeans(X_norm))
+  
+  w = noise
+  # central part is linear in log-scale
+  wmax = quantile(w, 0.75)^2 / quantile(w, 0.5)
+  wmin = quantile(w, 0.25)^2 / quantile(w, 0.5)
+  w = pmin(w, wmax)
+  w = pmax(w, wmin)
+  X_norm <- X_norm / w
+  Y_norm <- Y_norm / w
+  
+  # model <- mvr(
+  #   Y_norm ~ X_norm,
+  #   ncol(X_norm), # As all components are used, actually identical to lm
+  #   scale = FALSE,
+  #   validation = 'CV',
+  #   center = FALSE,
+  #   method = 'simpls')
+  # model <- lm(Y_norm ~ X_norm + 0)
+  # coeffs = coef(model)
+  # coeffs = array(
+  #   coeffs,
+  #   dim = dim(coeffs)[1:2],
+  #   dimnames = dimnames(coeffs)[1:2])
+
+  coeffs =
+    apply(
+      Y_norm,
+      2,
+      function (y) {coef(MASS::rlm(y ~ X_norm + 0))})
+  rownames(coeffs) = sub("^X_norm", "", rownames(coeffs))
+  coeffs[coeffs < 0] = 0
+  
+  x = rownames(coeffs)
+  coeffs = diag(qncountfactor[x]) %*% coeffs
+  # coeffs = diag(qncountfactoradditivemean[x]) %*% coeffs
+  rownames(coeffs) = x
+  summary(colSums(coeffs))
+  # 1 for qncountfactor
+  # 1.067-1.130 for qncountfactorarithmeticmean qncountfactoradditivemean; why not 1
+
+  coeffs = coeffs /
+    matrix(colSums(coeffs),
+           nrow = nrow(coeffs),
+           ncol = ncol(coeffs),
+           byrow = TRUE)
+  coeffs = as.data.frame(coeffs)
+  coeffs$celltype = rownames(coeffs)
+  cbPalette <- c("#000000", "#999999", "#E69F00",
+                 "#56B4E9", "#009E73", "#F0E442",
+                 "#0072B2", "#D55E00", "#CC79A7")
+  dataplot = tidyr::pivot_longer(
+    as.data.frame(coeffs),
+    cols = -"celltype",
+    names_to = "Sample",
+    values_to = "Proportion")
+  dataplot$Sample = factor(
+    dataplot$Sample,
+    levels = c(
+      "m154207", "m154208", "m154209", "m154210", 
+      "m167203", "m167204", "m167205", "m167206", 
+      "m168101", "m168102", "m168103", "m168104", 
+      "m135210", "m135211", "m158110", "m158111", 
+      "m154211", "m154212", "m154213", "m154214", 
+      "m167108", "m167109", "m167110", "m167111", 
+      "m152202", "m157103", "m158108", "m158109"))
+  dataplot$celltype = factor(
+    dataplot$celltype,
+    levels = c(
+      # adjvar04Leiden_adjvar01Leiden Clusters4res05
+      "hepato",
+      "stellate",
+      "endothelial", paste0("C", 13:14),
+      "WBC", "B", "T_NK", "myelo", paste0("C", c(11, 10, 8, 9))
+      # # adjvar04Leiden_adjvar01Leiden Clusters4res02
+      # "hepato", paste0("C", c(1, 3, 2)),
+      # "stellate",
+      # "endothelial",
+      # "WBC", paste0("C", c(5, 4))
+      ))
+  p1 =
+    ggplot(
+      data = dataplot,
+      aes(x = Sample,
+          y = Proportion)) +
+    geom_col(
+      aes(fill = celltype)
+    ) +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5)) +
+    labs(x = NULL) +
+    scale_fill_manual(values=cbPalette)
+  ggsave(
+    paste0("../DeconPeaker/deconvolution.",
+           radixsig,
+           ".",
+           # "20200203_20201104.QN",
+           "combined",
+           "/my-Results-Bisque-rlm.png"),
+    p1,
+    width = 6, height = 4)
+  write.table(coeffs,
+              paste0("../DeconPeaker/deconvolution.",
+                     radixsig,
+                     ".",
+                     # "20200203_20201104.QN",
+                     "combined",
+                     "/my-Results-Bisque-rlm.txt"),
+              sep = "\t",
+              quote = FALSE,
+              row.names = FALSE)
+}
+```
+
+```{r}
+result = read.table(
+  paste0("../DeconPeaker/Clusters4res05/deconvolution.",
+         "Clusterscoarse",
+         ".",
+         "combined",
+         "/my-Results-Bisque-rlm.txt"),
+  header = TRUE)
+rownames(result) = result$celltype
+result = as.matrix(result[, colnames(result) != "celltype"])
+
+foo = read.table(
+  paste0("../DeconPeaker/deconvolution.",
+         "Clusters2endothelial",
+         ".",
+         "20200203_20201104.QN",
+         "/my-Results-Bisque-rlm.txt"),
+  header = TRUE)
+rownames(foo) = foo$celltype
+foo = as.matrix(foo[, colnames(foo) != "celltype"])
+foo = foo[grep("^C[1-9]", rownames(foo)), ]
+x = result["endothelial", ] / colSums(foo)
+summary(x)
+foo = foo *
+  matrix(x,
+         nrow = nrow(foo),
+         ncol = ncol(foo),
+         byrow = TRUE)
+result = rbind(
+  result[rownames(result) != "endothelial", ],
+  foo)
+
+foo = read.table(
+  paste0("../DeconPeaker/deconvolution.",
+         "Clusters2stellate",
+         ".",
+         "20200203_20201104.QN",
+         "/my-Results-Bisque-rlm.txt"),
+  header = TRUE)
+rownames(foo) = foo$celltype
+foo = as.matrix(foo[, colnames(foo) != "celltype"])
+foo = foo[grep("^C[1-9]", rownames(foo)), ]
+x = result["stellate", ] / colSums(foo)
+summary(x)
+foo = foo *
+  matrix(x,
+         nrow = nrow(foo),
+         ncol = ncol(foo),
+         byrow = TRUE)
+result = rbind(
+  result[rownames(result) != "stellate", ],
+  foo)
+
+foo = read.table(
+  paste0("../DeconPeaker/Clusters4res05/deconvolution.",
+         "Clusters4WBC",
+         ".",
+         "combined",
+         "/my-Results-Bisque-rlm.txt"),
+  header = TRUE)
+rownames(foo) = foo$celltype
+foo = as.matrix(foo[, colnames(foo) != "celltype"])
+foo = foo[grep("^C[1-9]", rownames(foo)), ]
+x = result["WBC", ] / colSums(foo)
+summary(x)
+foo = foo *
+  matrix(x,
+         nrow = nrow(foo),
+         ncol = ncol(foo),
+         byrow = TRUE)
+result = rbind(
+  result[rownames(result) != "WBC", ],
+  foo)
+
+result = result[order(rownames(result)), ]
+```
+
+cross check, bulk vs snATAC-seq
+
+```{r}
+celltypecount = rbind(
+  table(proj6$Clusterscoarse2, proj6$Sample),
+  table(proj6$Clusters4res05, proj6$Sample))
+rownames(celltypecount) =
+  sub("endothelial cell", "endothelial",
+      sub("hepatocyte", "hepato",
+          rownames(celltypecount)))
+celltypecount = celltypecount[rownames(result), ]
+celltypecount = celltypecount /
+  matrix(colSums(celltypecount),
+         nrow = nrow(celltypecount),
+         ncol = ncol(celltypecount),
+         byrow = TRUE)
+celltypecount = as.data.frame((celltypecount))
+celltypecount$celltype = rownames(celltypecount)
+celltypecount = tidyr::pivot_longer(
+  celltypecount,
+  cols = -celltype,
+  names_to = "Sample",
+  values_to = "Proportion")
+
+result = tidyr::pivot_longer(
+  result,
+  cols = -celltype,
+  names_to = "Sample",
+  values_to = "Proportion")
+
+plotdata = dplyr::left_join(
+  celltypecount,
+  result,
+  by = c("celltype", "Sample"),
+  suffix = c(".sn", ".bulk")
+)
+summary(plotdata$Proportion.bulk / plotdata$Proportion.sn)
+# Clusterscoarse
+#  Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+# 0.5727  0.8544  0.9351  1.0391  1.1369  2.5505 
+# Clusters4WBC
+#   Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+# 0.3867  0.8192  0.9796  1.1254  1.3944  2.2300 
+
+ggplot(
+  data = plotdata,
+  aes(x = Proportion.sn,
+      y = Proportion.bulk)) + 
+  geom_point(
+    aes(col = celltype)) +
+  scale_x_log10() +
+  scale_y_log10() +
+  geom_abline(
+    aes(intercept = 0,
+        slope = 1))
+```
+
+PCA of cell type compositon
+
+```{r}
+result = as.matrix(result)
+result = result - rowMeans(result)
+# result = result / rowSds(result)
+x = svd(result)
+plot(x$d)
+plotdata = as.data.frame(x$v)
+plotdata$Sample = colnames(result)
+plotdata$group = NA
+plotdata$group[plotdata$Sample %in%
+                 c("m154207", "m154208", "m154209", "m154210")] = 1
+plotdata$group[plotdata$Sample %in%
+                 c("m167203", "m167204", "m167205", "m167206")] = 2
+plotdata$group[plotdata$Sample %in%
+                 c("m168101", "m168102", "m168103", "m168104")] = 3
+plotdata$group[plotdata$Sample %in%
+                 c("m135210", "m135211", "m158110", "m158111")] = 4
+plotdata$group[plotdata$Sample %in%
+                 c("m154211", "m154212", "m154213", "m154214")] = 5
+plotdata$group[plotdata$Sample %in%
+                 c("m167108", "m167109", "m167110", "m167111")] = 6
+plotdata$group[plotdata$Sample %in%
+                 c("m152202", "m157103", "m158108", "m158109")] = 7
+ggplot(
+  data = plotdata,
+  aes(x = V1,
+      y =V2)) +
+  geom_text(
+    aes(
+      label = group,
+      col = factor(group)))
+```
+
+## GeneScoreMatrix
+
+disable scaleTo
+
+```{r}
+.myaddGeneScoreMat <- function(
+  i = NULL,
+  ArrowFiles = NULL,
+  genes = NULL,
+  geneModel = "exp(-abs(x)/5000) + exp(-1)",
+  matrixName = "GeneScoreMatrix",
+  extendUpstream = c(1000, 100000),
+  extendDownstream = c(1000, 100000),
+  geneUpstream = 5000, #New Param
+  geneDownstream = 0, #New Param
+  useGeneBoundaries = TRUE,
+  useTSS = FALSE, #New Param
+  extendTSS = FALSE,
+  tileSize = 500,
+  ceiling = 4,
+  geneScaleFactor = 5, #New Param
+  scaleTo = 10000,
+  excludeChr = c("chrY","chrM"),
+  blacklist = NULL,
+  cellNames = NULL,
+  allCells = NULL,
+  force = FALSE,
+  tmpFile = NULL,
+  subThreads = 1,
+  tstart = NULL,
+  logFile = NULL
+  ){
+
+  ArchR:::.validInput(input = i, name = "i", valid = c("integer"))
+  ArchR:::.validInput(input = ArrowFiles, name = "ArrowFiles", valid = c("character"))
+  ArchR:::.validInput(input = genes, name = "genes", valid = c("GRanges"))
+  ArchR:::.validInput(input = geneModel, name = "geneModel", valid = c("character"))
+  ArchR:::.validInput(input = matrixName, name = "matrixName", valid = c("character"))
+  ArchR:::.validInput(input = extendUpstream, name = "extendUpstream", valid = c("integer"))
+  ArchR:::.validInput(input = extendDownstream, name = "extendDownstream", valid = c("integer"))
+  ArchR:::.validInput(input = tileSize, name = "tileSize", valid = c("integer"))
+  ArchR:::.validInput(input = ceiling, name = "ceiling", valid = c("integer"))
+  ArchR:::.validInput(input = useGeneBoundaries, name = "useGeneBoundaries", valid = c("boolean"))
+  ArchR:::.validInput(input = scaleTo, name = "scaleTo", valid = c("numeric"))
+  ArchR:::.validInput(input = excludeChr, name = "excludeChr", valid = c("character", "null"))
+  ArchR:::.validInput(input = blacklist, name = "blacklist", valid = c("GRanges", "null"))
+  ArchR:::.validInput(input = cellNames, name = "cellNames", valid = c("character", "null"))
+  ArchR:::.validInput(input = allCells, name = "allCells", valid = c("character", "null"))
+  ArchR:::.validInput(input = force, name = "force", valid = c("boolean"))
+  ArchR:::.validInput(input = tmpFile, name = "tmpFile", valid = c("character", "null"))
+
+  if(inherits(mcols(genes)$symbol, "list") | inherits(mcols(genes)$symbol, "SimpleList")){
+    stop("Found a list in genes symbol! This is an incorrect format. Please correct your genes!")
+  }
+
+  ArrowFile <- ArrowFiles[i]
+  sampleName <- ArchR:::.sampleName(ArrowFile)
+
+  if(is.null(tmpFile)){
+    tmpFile <- ArchR:::.tempfile(pattern = paste0("tmp-", ArchR:::.sampleName(ArrowFile)))
+  }
+
+  #Check
+  o <- h5closeAll()
+  o <- ArchR:::.createArrowGroup(ArrowFile = ArrowFile, group = matrixName, force = force, logFile = logFile)
+
+  geneRegions <- genes[BiocGenerics::which(seqnames(genes) %bcni% excludeChr)]
+  seqlevels(geneRegions) <- as.character(unique(seqnames(geneRegions)))
+  geneRegions <- geneRegions[!is.na(mcols(geneRegions)$symbol)]
+
+  #Create Gene Regions Then Remove Strand Column
+  if(useTSS){
+    ArchR:::.logMessage(paste0(sampleName, " .addGeneScoreMat useTSS = TRUE"))
+    distMethod <- "GenePromoter"
+    geneRegions$geneStart <- start(resize(geneRegions, 1, "start"))
+    geneRegions$geneEnd <- start(resize(geneRegions, 1, "end"))
+    geneRegions <- resize(geneRegions, 1, "start")
+    if(extendTSS){
+      geneRegions <- extendGR(gr = geneRegions, upstream = geneUpstream, downstream = geneDownstream)
+    }
+    geneRegions$geneWeight <- geneScaleFactor
+  }else{
+    ArchR:::.logMessage(paste0(sampleName, " .addGeneScoreMat useTSS = FALSE"))
+    distMethod <- "GeneBody"
+    geneRegions$geneStart <- start(resize(geneRegions, 1, "start"))
+    geneRegions$geneEnd <- start(resize(geneRegions, 1, "end"))
+    geneRegions <- extendGR(gr = geneRegions, upstream = geneUpstream, downstream = geneDownstream)
+    m <- 1 / width(geneRegions)
+    geneRegions$geneWeight <- 1 + m * (geneScaleFactor - 1) / (max(m) - min(m))
+  }
+
+  ArchR:::.logDiffTime(sprintf("Computing Gene Scores using distance relative to %s! ", distMethod), tstart, logFile = logFile)
+
+  #Add Gene Index For ArrowFile
+  geneRegions <- sort(sortSeqlevels(geneRegions), ignore.strand = TRUE)
+  ArchR:::.logThis(geneRegions, paste0(sampleName, " .addGeneScoreMat geneRegions"), logFile = logFile)
+  
+  geneRegions <- split(geneRegions, seqnames(geneRegions))
+  geneRegions <- lapply(geneRegions, function(x){
+    mcols(x)$idx <- seq_along(x)
+    return(x)
+  })
+
+  #Blacklist Split
+  if(!is.null(blacklist)){
+    if(length(blacklist) > 0){
+      blacklist <- split(blacklist, seqnames(blacklist))
+    }
+  }
+
+  #Get all cell ids before constructing matrix
+  if(is.null(cellNames)){
+    cellNames <- ArchR:::.availableCells(ArrowFile)
+  }
+
+  if(!is.null(allCells)){
+    cellNames <- cellNames[cellNames %in% allCells]
+  }
+
+  tstart <- Sys.time()
+
+
+  #########################################################################################################
+  #First we will write gene scores to a temporary path! rhdf5 delete doesnt actually delete the memory!
+  #########################################################################################################
+  totalGS <- ArchR:::.safelapply(seq_along(geneRegions), function(z){
+
+    totalGSz <- tryCatch({
+
+      ArchR:::.logDiffTime(sprintf("Creating Temp GeneScoreMatrix for %s, Chr (%s of %s)!", sampleName, z, length(geneRegions)), 
+        tstart, verbose = FALSE, logFile = logFile)
+
+      #Get Gene Starts
+      geneRegionz <- geneRegions[[z]]
+      geneRegionz <- geneRegionz[order(geneRegionz$idx)]
+      chrz <- paste0(unique(seqnames(geneRegionz)))
+
+      #Read in Fragments
+      frag <- ArchR:::.getFragsFromArrow(ArrowFile, chr = chrz, out = "IRanges", cellNames = cellNames)
+      fragSt <- trunc(start(frag)/tileSize) * tileSize
+      fragEd <- trunc(end(frag)/tileSize) * tileSize
+      fragBC <- rep(S4Vectors::match(mcols(frag)$RG, cellNames), 2)
+      rm(frag)
+      gc()
+
+      #Unique Inserts
+      uniqIns <- sort(unique(c(fragSt,fragEd)))
+
+      #Construct tile by cell mat!
+      matGS <- Matrix::sparseMatrix(
+          i = match(c(fragSt, fragEd), uniqIns),
+          j = as.vector(fragBC),
+          x = rep(1,  2*length(fragSt)),
+          dims = c(length(uniqIns), length(cellNames))
+        )  
+      
+      if(!is.null(ceiling)){
+        matGS@x[matGS@x > ceiling] <- ceiling
+      }
+
+      #Unique Tiles
+      uniqueTiles <- IRanges(start = uniqIns, width = tileSize)
+      
+      #Clean Memory
+      rm(uniqIns, fragSt, fragEd, fragBC)
+      gc() 
+
+      #Time to Overlap Gene Windows
+      if(useGeneBoundaries){
+
+        geneStartz <- start(resize(geneRegionz, 1, "start"))
+        geneEndz <- start(resize(geneRegionz, 1, "end"))
+
+        pminGene <- pmin(geneStartz, geneEndz)
+        pmaxGene <- pmax(geneStartz, geneEndz)
+
+        idxMinus <- BiocGenerics::which(strand(geneRegionz) != "-")
+    
+        pReverse <- rep(max(extendDownstream), length(pminGene))
+        pReverse[idxMinus] <- rep(max(extendUpstream), length(idxMinus))
+
+        pReverseMin <- rep(min(extendDownstream), length(pminGene))
+        pReverseMin[idxMinus] <- rep(min(extendUpstream), length(idxMinus))
+
+        pForward <- rep(max(extendUpstream), length(pminGene))
+        pForward[idxMinus] <- rep(max(extendDownstream), length(idxMinus))      
+
+        pForwardMin <- rep(min(extendUpstream), length(pminGene))
+        pForwardMin[idxMinus] <- rep(min(extendDownstream), length(idxMinus))      
+
+        ################################################################
+        #We will test when genes pass by another gene promoter
+        ################################################################
+
+        #Start of Range is based on the max observed gene ranged <- direction
+        s <- pmax(
+          c(1, pmaxGene[-length(pmaxGene)] + tileSize), 
+          pminGene - pReverse
+        )
+        s <- pmin(pminGene - pReverseMin, s)
+
+        #End of Range is based on the max observed gene ranged -> direction
+        e <- pmin(
+            c(pminGene[-1] - tileSize, pmaxGene[length(pmaxGene)] + pForward[length(pmaxGene)]), 
+            pmaxGene + pForward
+          )
+        e <- pmax(pmaxGene + pForwardMin, e)
+
+        extendedGeneRegion <- IRanges(start = s, end = e)
+
+        idx1 <- which(pminGene - pReverseMin < start(extendedGeneRegion))
+        if(length(idx1) > 0){
+          stop("Error in gene boundaries minError")
+        }
+
+        idx2 <- which(pmaxGene + pForwardMin > end(extendedGeneRegion))
+        if(length(idx2) > 0){
+          stop("Error in gene boundaries maxError")
+        }
+       
+       rm(s, e, pReverse, pReverseMin, pForward, pForwardMin, geneStartz, geneEndz, pminGene, pmaxGene)
+
+      }else{
+
+        extendedGeneRegion <- ranges(suppressWarnings(extendGR(geneRegionz, upstream = max(extendUpstream), downstream = max(extendDownstream))))
+
+      }
+
+      tmp <- suppressWarnings(findOverlaps(extendedGeneRegion, uniqueTiles))
+      x <- distance(ranges(geneRegionz)[queryHits(tmp)], uniqueTiles[subjectHits(tmp)])
+
+      #Determine Sign for Distance relative to strand (Directionality determined based on dist from gene start)
+      isMinus <- BiocGenerics::which(strand(geneRegionz) == "-")
+      signDist <- sign(start(uniqueTiles)[subjectHits(tmp)] - start(resize(geneRegionz,1,"start"))[queryHits(tmp)])
+      signDist[isMinus] <- signDist[isMinus] * -1
+
+      #Correct the orientation for the distance!
+      x <- x * signDist
+
+      #Evaluate Input Model
+      x <- eval(parse(text=geneModel))
+
+      #Get Gene Weights Related to Gene Width
+      x <- x * mcols(geneRegionz)$geneWeight[queryHits(tmp)]
+
+      #Remove Blacklisted Tiles!
+      if(!is.null(blacklist)){
+        if(length(blacklist) > 0){
+          blacklistz <- blacklist[[chrz]]
+          if(is.null(blacklistz) | length(blacklistz) > 0){
+            tilesBlacklist <- 1 * (!overlapsAny(uniqueTiles, ranges(blacklistz)))
+            if(sum(tilesBlacklist == 0) > 0){
+              x <- x * tilesBlacklist[subjectHits(tmp)] #Multiply Such That All Blacklisted Tiles weight is now 0!
+            }
+          }
+        }
+      }
+
+      #Creating Sparse Matrix
+      tmp <- Matrix::sparseMatrix(
+        i = queryHits(tmp), 
+        j = subjectHits(tmp), 
+        x = x, 
+        dims = c(length(geneRegionz), nrow(matGS))
+      )
+
+      #Calculate Gene Scores
+      matGS <- tmp %*% matGS
+      colnames(matGS) <- cellNames
+
+      totalGSz <- Matrix::colSums(matGS)
+
+      #Save tmp file
+      ArchR:::.safeSaveRDS(matGS, file = paste0(tmpFile, "-", chrz, ".rds"), compress = FALSE)
+
+      #Clean Memory
+      rm(isMinus, signDist, extendedGeneRegion, uniqueTiles)
+      rm(matGS, tmp)
+      gc()
+
+      totalGSz
+   
+    }, error = function(e){
+
+      errorList <- list(
+        ArrowFile = ArrowFile,
+        geneRegions = geneRegions,
+        blacklist = blacklist,
+        chr = chrz,
+        totalGSz = if(exists("totalGSz", inherits = FALSE)) totalGSz else "totalGSz",
+        matGS = if(exists("matGS", inherits = FALSE)) matGS else "matGS"
+      )
+
+      ArchR:::.logError(e, fn = ".addGeneScoreMat TmpGS", info = sampleName, errorList = errorList, logFile = logFile)
+
+    })
+
+    totalGSz
+
+  }, threads = subThreads) %>% Reduce("+", .)
+  
+  
+
+  #########################################################################################################
+  #Organize info for ArchR Arrow
+  #########################################################################################################
+  featureDF <- Reduce("c",geneRegions) %>% 
+    {data.frame(
+      row.names=NULL,
+      seqnames=as.character(seqnames(.)),
+      start=mcols(.)$geneStart,
+      end=mcols(.)$geneEnd,
+      strand=as.integer(strand(.)),
+      name=mcols(.)$symbol,
+      idx=mcols(.)$idx,
+      stringsAsFactors=FALSE)}
+  ArchR:::.logThis(featureDF, paste0(sampleName, " .addGeneScoreMat FeatureDF"), logFile = logFile)
+
+  dfParams <- data.frame(
+      extendUpstream = extendUpstream,
+      extendDownstream = extendDownstream,
+      geneUpstream = extendUpstream,
+      geneDownstream = extendDownstream,
+      scaleTo = scaleTo,
+      tileSize = tileSize,
+      ceiling = ceiling,
+      geneModel = geneModel,
+      stringsAsFactors=FALSE
+    )
+
+  ######################################
+  # Initialize SP Mat Group
+  ######################################
+  o <- ArchR:::.initializeMat(
+    ArrowFile = ArrowFile,
+    Group = matrixName,
+    Class = "double",
+    Units = "NormCounts",
+    cellNames = cellNames,
+    params = dfParams,
+    featureDF = featureDF,
+    force = TRUE
+  )
+
+  #Clean Memory
+  rm(dfParams, featureDF, genes)
+  gc()
+
+  #Normalize and add to Arrow File!
+  for(z in seq_along(geneRegions)){
+
+    o <- tryCatch({
+
+      #Get Chromosome
+      chrz <- paste0(unique(seqnames(geneRegions[[z]])))
+
+      ArchR:::.logDiffTime(sprintf("Adding GeneScoreMatrix to %s for Chr (%s of %s)!", sampleName, z, length(geneRegions)), 
+        tstart, verbose = FALSE, logFile = logFile)
+
+      #Re-Create Matrix for that chromosome!
+      matGS <- readRDS(paste0(tmpFile, "-", chrz, ".rds"))
+      file.remove(paste0(tmpFile, "-", chrz, ".rds"))
+
+      #Normalize
+      # 2021.06.04 fumi
+#      matGS@x <- as.numeric(scaleTo * matGS@x/rep.int(totalGS, Matrix::diff(matGS@p)))
+
+      #Round to Reduce Digits After Final Normalization
+      matGS@x <- round(matGS@x, 3)
+      matGS <- Matrix::drop0(matGS)
+
+      #Write sparseMatrix to Arrow File!
+      o <- ArchR:::.addMatToArrow(
+        mat = matGS, 
+        ArrowFile = ArrowFile, 
+        Group = paste0(matrixName, "/", chrz), 
+        binarize = FALSE,
+        addColSums = TRUE,
+        addRowSums = TRUE,
+        addRowVarsLog2 = TRUE #add for integration analyses
+      )
+
+      #Clean Memory
+      rm(matGS)
+
+      if(z %% 3 == 0 | z == length(geneRegions)){
+        gc()
+      }
+
+    }, error = function(e){
+
+      errorList <- list(
+        ArrowFile = ArrowFile,
+        geneRegions = geneRegions,
+        blacklist = blacklist,
+        chr = chrz,
+        mat = if(exists("mat", inherits = FALSE)) mat else "mat"
+      )
+
+      ArchR:::.logError(e, fn = ".addGeneScoreMat AddToArrow", info = sampleName, errorList = errorList, logFile = logFile)
+
+    })
+
+  }
+
+  return(ArrowFile)
+
+}
+```
+
+```{r}
+assignInNamespace(".addGeneScoreMat",
+                  .myaddGeneScoreMat,
+                  ns="ArchR")
+```
+
+```{r}
+addGeneScoreMatrix(
+  proj6,
+  matrixName = "GeneScoreMatrix2",
+  geneScaleFactor = 1,
+  force = TRUE)
+```
+
+```{r}
+mat = getMatrixFromProject(proj6, useMatrix="GeneScoreMatrix2")
+assay(mat) = round(assay(mat))
+```
+
+```{r}
+library(Linnorm)
+matlinnorm    = expm1(Linnorm(assay(mat))) # better in simulation
+matlinnormRaw = Linnorm.Norm(assay(mat), output = "Raw")
+max(assay(mat))
+max(matlinnorm)
+max(matlinnormRaw)
+summary(colSums(assay(mat)))
+summary(colSums(matlinnorm))
+summary(colSums(matlinnormRaw))
+summary(colSums(matlinnorm) / colSums(matlinnormRaw))
+plot(assay(mat)[, 1], matlinnorm[, 1])
+plot(matlinnorm[, 1], matlinnormRaw[, 1])
+
+mat2 = matlinnorm
+saveRDS(mat2, file="mat2.rds")
+```
+Run SAVER on different machines.
+https://mohuangx.github.io/SAVER/articles/saver-tutorial.html
+
+```{r}
+library(SAVER)
+
+mat2 = readRDS("mat2.rds")
+
+# saver1 = saver(pred.genes = 1:3000, pred.genes.only = TRUE, do.fast = FALSE, x=mat2, ncores=12, size.factor=1)
+# saveRDS(saver1, file="saver1.rds")
+# 
+# saver2 = saver(pred.genes = 3001:6000, pred.genes.only = TRUE, do.fast = FALSE, x=mat2, ncores=12, size.factor=1)
+# saveRDS(saver2, file="saver2.rds")
+# 
+# saver3 = saver(pred.genes = 6001:9000, pred.genes.only = TRUE, do.fast = FALSE, x=mat2, ncores=12, size.factor=1)
+# saveRDS(saver3, file="saver3.rds")
+# 
+# saver4 = saver(pred.genes = 9001:12000, pred.genes.only = TRUE, do.fast = FALSE, x=mat2, ncores=12, size.factor=1)
+# saveRDS(saver4, file="saver4.rds")
+# 
+# saver5 = saver(pred.genes = 12001:15000, pred.genes.only = TRUE, do.fast = FALSE, x=mat2, ncores=12, size.factor=1)
+# saveRDS(saver5, file="saver5.rds")
+# 
+# saver6 = saver(pred.genes = 15001:nrow(mat2), pred.genes.only = TRUE, do.fast = FALSE, x=mat2, ncores=12, size.factor=1)
+# saveRDS(saver6, file="saver6.rds")
+# 
+# saver1 = readRDS("saver1.rds")
+# saver2 = readRDS("saver2.rds")
+# saver3 = readRDS("saver3.rds")
+# saver4 = readRDS("saver4.rds")
+# saver5 = readRDS("saver5.rds")
+# saver6 = readRDS("saver6.rds")
+# saver.all <- combine.saver(list(saver1, saver2, saver3, saver4, saver5, saver6))
+# saveRDS(saver.all,
+#         file="GeneScoreMatrix.geneScaleFactor_1.scaleTo_skipped.Linnorm.saver.rds")
+# rm(saver1, saver2, saver3, saver4, saver5, saver6, saver.all)
+
+saver.all = readRDS("GeneScoreMatrix.geneScaleFactor_1.scaleTo_skipped.Linnorm.saver.rds")
+matsaver = saver.all$estimate
+
+max(mat2)
+max(matsaver)
+min(matsaver)
+summary(colSums(mat2))
+summary(colSums(matsaver))
+plot(mat2[, 1], matsaver[, 1])
+summary(rowMeans(mat2==0))
+summary(rowMeans(matsaver==0))
+
+qplot(
+  x=log10(rowMeans(matsaver)),
+  # y=log10(rowSds(matsaver)),
+  y=log10(rowSds(matsaver) / rowMeans(matsaver)), # CV
+  geom="bin2d")
+```
+
+```{r}
+mat = getMatrixFromProject(proj6, useMatrix="GeneScoreMatrix2")
+colSm = colSums(assay(mat))
+
+rownames(matsaver) = NULL
+assay(mat) = log2(matsaver) # NOW LOG2 SCALE !!!
+```
+
+Underweighting low expression genes.
+Actually worse than simple cutoff (below).
+Avoid:
+
+```{r}
+qplot(
+  x=rowMeans(assay(mat)),
+ y=log10(rowSds(assay(mat))),
+  geom="bin2d")
+
+  x=rowMeans(assay(mat))
+ y=log10(rowSds(assay(mat)))
+ x2 = x^2
+a0 = lm(y ~ x ) #  x + x2
+summary(a0)
+yhat = predict(a0)
+
+qplot(
+  x=rowMeans(assay(mat)),
+ y=log10(rowSds(assay(mat)) / (10^yhat) ),
+  geom="bin2d")
+
+assay(mat) = assay(mat) / (10^yhat)
+mat2 = mat
+```
+
+Simple cutoff of low expression genes
+
+```{r}
+quantile(rowMeans(assay(mat)), seq(0, 1, 0.1))
+idx = (rowMeans(assay(mat)) >
+         quantile(rowMeans(assay(mat)), 0.1)) 
+# 0.1 0.2 0.3 0.5 0.7 similar for major coarse; 0.05 worse; maybe use 0.1
+mat2 = mat[idx, ]
+
+```
+
+Library size correct
+
+```{r}
+assay(mat2) = assay(mat2) -
+  matrix(
+    colMeans(assay(mat2)),
+    nrow = nrow(assay(mat2)),
+    ncol = ncol(assay(mat2)),
+    byrow = TRUE)
+```
+
+Sample batch correct mat
+row centralize (jump to "2nd round")
+
+
+```{r}
+sampleLabels = unique(as.character(mat2$Sample))
+ClusterscoarseLabels = unique(as.character(mat2$Clusterscoarse2))
+
+for (cl in ClusterscoarseLabels) {
+  print(cl)
+  target = rowMeans(assay(mat2)[, which(mat2$Clusterscoarse2 == cl),
+                    drop = FALSE])
+  for (s in sampleLabels) {
+    print(s)
+    x = assay(mat2)[, which(mat2$Clusterscoarse2 == cl &
+                              mat2$Sample == s),
+                    drop = FALSE]
+    x = x - rowMeans(x) + target
+    assay(mat2)[, which(mat2$Clusterscoarse2 == cl &
+                          mat2$Sample == s)] = x
+    rm(x)
+  }
+}
+```
+
+
+Row centralization is mandatory!
+[Skillicorn, Understanding complex datasets. p.51]
+
+```{r}
+assay(mat2) = assay(mat2) -
+    rowMeans(assay(mat2))
+```
+
+
+This is worse. It amplifies stable genes irrelevant to cell type.
+Avoid:
+
+```{r}
+# assay(mat2) = assay(mat2) / rowSds(assay(mat2))
+
+```
+
+
+```{r}
+gc()
+set.seed(1)
+
+svd <- irlba::irlba(assay(mat2), 30, 30)
+```
+
+Plot inspection
+
+```{r}
+library(viridisLite);
+
+plotdata = as.data.frame(svd$v)
+plotdata$colSm    = colSm
+plotdata$celltype = mat2$Clusterscoarse2
+plotdata$ploidy   = mat2$ploidy
+plotdata$Sample   = as.character(mat2$Sample)
+
+ggplot(
+  data = plotdata,
+  aes(x = V1,
+      y = V2)) +
+  geom_point(aes(
+    # col = log10(colSm)
+    col = celltype
+    # col = ploidy
+    ),
+    size = 0.1) +
+  # scale_color_gradientn(colours = viridis(256, option = "D")) +
+  facet_grid(rows = vars(Sample)) +
+  geom_rug()
+```
+
+In above plot, higher dimensions appear to be random noise.
+
+```{r}
+dmax = 7
+x = svd$v[, 1:dmax] %*% diag(svd$d[1:dmax])
+rownames(x) = colnames(mat2)
+colnames(x) = paste0("LSI", seq(1, ncol(x)))
+```
+
+### LINEAR REGRESSION
+
+```{r}
+mat = getMatrixFromProject(proj6, useMatrix="GeneScoreMatrix2")
+
+dim(mat) == dim(matsaver)
+all(colnames(mat) == colnames(matsaver))
+assay(mat, withDimnames = FALSE) = matsaver
+
+# The smallest value imputed by saver is 0.001
+# Exclude low expression genes
+x = (rowMeans(assay(mat) <= 0.001) < 0.01) # discard 252, keep 16842
+mat = mat[which(x), ]
+
+dimnames(mat)[[1]] = rowData(mat)$name
+x = ! duplicated(dimnames(mat)[[1]])
+mat = mat[which(x), ]
+
+assay(mat) = log2(assay(mat)) # NOW LOG2 SCALE !!!
+
+# # Library size correct (average)
+# assay(mat) = assay(mat) -
+#   matrix(
+#     colMeans(assay(mat)),
+#     nrow = nrow(assay(mat)),
+#     ncol = ncol(assay(mat)),
+#     byrow = TRUE)
+
+# mat = mat[, which(mat$Clusters4BTmyelo == "hepato")]
+
+# Library size correct (qn)
+x = preprocessCore::normalize.quantiles(assay(mat))
+assay(mat, withDimnames = FALSE) = x
+
+# Case 1: Correct for samples; Clusters4res05
+# This is more stringent but possibly less powerful
+# compared to the Bayesian correction by COMBAT.
+# Currently, I prefer the conservative choice.
+sampleLabels = unique(as.character(mat$Sample))
+for (s in sampleLabels) {
+  print(s)
+  x = assay(mat)[, which(mat$Sample == s),
+                  drop = FALSE]
+  x = x - rowMeans(x) 
+  assay(mat)[, which(mat$Sample == s)] = x
+  rm(x)
+}
+
+# Case 2: Don't correct for samples; Clusters4BTmyelodiet Clusters4BTmyelospdietcombined
+assay(mat) = assay(mat) - rowMeans(assay(mat))
+
+
+# z = svd(assay(mat))
+set.seed(1)
+z = irlba::irlba(assay(mat), nv = 20)
+plot(z$d)
+ggplot(data=as.data.frame(z$v))+
+  geom_point(aes(x=V1,y=V2))+
+  facet_grid(
+    cols=vars(mat$Clusters4BTmyelo),
+    rows=vars(as.character(mat$Sample)))
+batcheffect = as.data.frame(z$v[, 1:2]) # includes cell type diff
+
+
+gname = "Clusters4res05"
+g = mat@colData[[gname]]
+ClustersLabels = unique(as.character(g))
+ClustersLabels = ClustersLabels[
+  order(as.numeric(sub("^C", "", ClustersLabels)))]
+
+gname = "Clusters4BTmyelodiet"
+gname = "Clusters4BTmyelospdietcombined"
+g = mat@colData[[gname]]
+ClustersLabels = unique(as.character(g))
+
+x =
+  sapply(
+    ClustersLabels,
+    function (c) { matrix(1 * (g == c), ncol = 1) })
+# x = x -
+#   matrix(
+#     colMeans(x),
+#     nrow = nrow(x),
+#     ncol = ncol(x),
+#     byrow = TRUE)
+# x = cbind(x,
+#   sapply(
+#     sort(unique(as.character(mat$Sample)))[-1],
+#     function (s) { matrix(1 * (mat$Sample == s), ncol = 1) }))
+
+result = broom::tidy(
+  lm(y ~ 0 + x,
+     data = list(y = t(assay(mat)), x = x)))
+result$term = sub("^x", "", result$term)
+
+tgt = "C9"
+tgt = "hepato_HFC"
+tgt = "hepato_sp"
+tgt = "myelo_HFC"
+
+library(dplyr)
+plotdata = result %>%
+  filter(term == tgt)
+plotdata$name = rowData(mat)$name[plotdata$response]
+
+ggplot(
+  data = plotdata[plotdata$estimate > 1, ],
+  aes(x = estimate,
+      y = abs(statistic))) +
+  geom_text(aes(label = name), size = 3)
+
+output =
+  plotdata %>%
+  select(name, statistic)
+write.table(
+  output,
+  paste0("cluster.", tgt, "_genes.Linnorm.saver.statistic.rnk"),
+  row.names = FALSE,
+  col.names = FALSE,
+  quote = FALSE,
+  sep = "\t")
+
+
+tgt = "C9"; bgd = "C8"
+tgt = "C14"; bgd = "C13"
+tgt = "hepato_HFC"; bgd = "hepato_sp"
+tgt = "myelo_HFC"; bgd = "myelo_sp"
+
+tgt = "hepato_m154207"; bgd = "hepato_sp"
+tgt = "hepato_m167203"; bgd = "hepato_sp"
+tgt = "hepato_m168101"; bgd = "hepato_sp"
+
+tgt = "stellate_m154207"; bgd = "stellate_sp"
+tgt = "stellate_m167203"; bgd = "stellate_sp"
+tgt = "stellate_m168101"; bgd = "stellate_sp"
+
+tgt = "endothelial_m154207"; bgd = "endothelial_sp"
+tgt = "endothelial_m167203"; bgd = "endothelial_sp"
+tgt = "endothelial_m168101"; bgd = "endothelial_sp"
+
+tgt = "myelo_m154207";  bgd = "myelo_sp"
+tgt = "myelo_m167203";  bgd = "myelo_sp"
+tgt = "myelo_m168101";  bgd = "myelo_sp"
+
+tgt = "B_m154207";  bgd = "B_sp"
+tgt = "B_m167203";  bgd = "B_sp"
+tgt = "B_m168101";  bgd = "B_sp"
+
+tgt = "T_NK_m154207";  bgd = "T_NK_sp"
+tgt = "T_NK_m167203";  bgd = "T_NK_sp"
+tgt = "T_NK_m168101";  bgd = "T_NK_sp"
+
+
+plotdata = result %>%
+  filter(term %in% c(tgt, bgd)) %>%
+  select(c("response", "term", "estimate", "std.error"))
+plotdata =
+  tidyr::pivot_wider(
+    data = plotdata,
+    names_from = term,
+    values_from = c(estimate, std.error),
+    names_sep = ".")
+plotdata[, "estimate.diff"] =
+  plotdata[, paste0("estimate.", tgt)] -
+  plotdata[, paste0("estimate.", bgd)]
+plotdata[, "std.error.diff"] =
+  sqrt(plotdata[, paste0("std.error.", tgt)]^2 +
+         plotdata[, paste0("std.error.", bgd)]^2)
+plotdata$statistic.diff =
+  plotdata$estimate.diff / plotdata$std.error.diff
+plotdata$name = rowData(mat)$name[plotdata$response]
+
+ggplot(
+    data = plotdata,
+    aes(x = estimate.C9 / std.error.C9,
+y = estimate.C8 / std.error.C8)) +
+geom_point()
+
+ggplot(
+    data = plotdata,
+    aes(x = estimate.diff,
+        y = abs(statistic.diff))) +
+#  geom_point()
+  geom_text(aes(label = name), size = 3)
+
+output =
+  plotdata %>%
+  select(name, statistic.diff)
+write.table(
+  output,
+  paste0("cluster.", tgt, "vs", bgd, "_genes.Linnorm.saver.statistic.rnk"),
+  row.names = FALSE,
+  col.names = FALSE,
+  quote = FALSE,
+  sep = "\t")
+```
+
+Define gene sets for GSEA
+
+```{r}
+library(msigdbr)
+
+gslistfrombaderlab = function (x) {
+  x = strsplit(x, "\t")
+  gslist = lapply(x, function (x) { x[-c(1:2)] })
+  names(gslist) = unlist(lapply(x, function (x) { x[1] }))
+  return(gslist)
+}
+gslistfrommsigdbr = function (x) {
+  x = x %>%
+    dplyr::mutate(name = paste0(gs_name, "%%", gs_id)) %>%
+    dplyr::select(name, gene_symbol) %>%
+    dplyr::group_by(name) %>%
+    dplyr::summarise(gs = list(gene_symbol))
+  gslist = x$gs
+  names(gslist) = x$name
+  return(gslist)
+}
+
+gslists = list()
+x = readLines("~/human/publicrat/baderlab_EM_Genesets/Rat_Human_NetPath_June_01_2021_symbol.gmt")
+gslists = c(gslists,
+            list(NetPath = gslistfrombaderlab(x)))
+x = readLines("~/human/publicrat/baderlab_EM_Genesets/Rat_Human_Panther_June_01_2021_symbol.gmt")
+gslists = c(gslists,
+            list(Panther = gslistfrombaderlab(x)))
+x = msigdbr(species = "Rattus norvegicus", category = "H")
+gslists = c(gslists,
+            list(H = gslistfrommsigdbr(x)))
+x = msigdbr(species = "Rattus norvegicus", category = "C2", subcategory = "CP:KEGG")
+gslists = c(gslists,
+            list(KEGG = gslistfrommsigdbr(x)))
+x = msigdbr(species = "Rattus norvegicus", category = "C2", subcategory = "CP:PID")
+gslists = c(gslists,
+            list(PID = gslistfrommsigdbr(x)))
+x = msigdbr(species = "Rattus norvegicus", category = "C2", subcategory = "CP:REACTOME")
+gslists = c(gslists,
+            list(REACTOME = gslistfrommsigdbr(x)))
+x = msigdbr(species = "Rattus norvegicus", category = "C2", subcategory = "CP:WIKIPATHWAYS")
+gslists = c(gslists,
+            list(WIKIPATHWAYS = gslistfrommsigdbr(x)))
+x1 = msigdbr(species = "Rattus norvegicus", category = "C3", subcategory = "TFT:GTRD")
+x2 = msigdbr(species = "Rattus norvegicus", category = "C3", subcategory = "TFT:TFT_Legacy")
+gslists = c(gslists,
+            list(TFT = c(gslistfrommsigdbr(x1), gslistfrommsigdbr(x2))))
+x = msigdbr(species = "Rattus norvegicus", category = "C5", subcategory = "GO:BP")
+gslists = c(gslists,
+            list(GOBP = gslistfrommsigdbr(x)))
+rm(x, x1, x2)
+
+# For Motif, restrict genes to TFs
+gslistsTF = lapply(
+  gslists,
+  function (l) {
+    lTF =
+      lapply(
+        l,
+        function (x) {
+          intersect(x, rownames(mat))
+        })
+    lTF = lTF[unlist(lapply(lTF, length)) > 0]
+    return(lTF)
+  })
+gslists = gslistsTF
+
+```
+
+
+Perform padog GSEA
+Good for GeneScore.
+Maybe inappropriate for Motif. As consensus sequences of motifs can overlap, signals for TF motifs are not independent.
+
+```{r}
+# tgt
+esetm = cbind(
+  assay(mat)[, which(g == tgt)],
+  assay(mat)[, which(g != tgt)])
+rownames(esetm) = rowData(mat)$name
+esetm = esetm[! duplicated(rownames(esetm)), ]
+group = c(rep("d",sum(g == tgt)), rep("c",sum(g != tgt)))
+
+# tgt vs bgd
+esetm = cbind(
+  assay(mat)[, which(g == tgt)],
+  assay(mat)[, which(g == bgd)])
+# rownames(esetm) = rowData(mat)$name
+esetm = esetm[! duplicated(rownames(esetm)), ]
+group = c(rep("d",sum(g == tgt)), rep("c",sum(g == bgd)))
+
+dseed = 1
+library(PADOG)
+result = list()
+for (i in 1:length(gslists)) {
+  print(names(gslists)[i])
+  myr = padog(
+    esetm = esetm,
+    group = group,
+    gslist = gslists[[i]],
+    organism = "rno",
+    Nmin = 5,
+#    NI = 10000, # for all nuclei
+    NI = max(10000, length(gslists[[i]]) * 20),
+    parallel = TRUE,
+    ncr = 16,
+    dseed = dseed)
+  myr$FDRmeanAbsT = p.adjust(myr$PmeanAbsT, method = "BH")
+  myr$FDRpadog    = p.adjust(myr$Ppadog, method = "BH")
+  result = c(result, list(myr))
+}
+names(result) = names(gslists)
+
+saveRDS(result, file = paste0(
+  "padog.GeneScore/",
+  # "padog.Motif/",
+  paste0(c(gname, tgt, bgd, dseed, "rds"), collapse = ".")))
+```
+
+
+## 11.1 Identifying Marker Peaks with ArchR
+
+Marker features are features that are unique to a specific cell grouping. These can be very useful in understanding cluster- or cell type-specific biology.
+
+```{r}
+markersPeaks <- getMarkerFeatures(
+  ArchRProj = proj5, 
+  useMatrix = "PeakMatrix", 
+  # groupBy = "Clusters4res05", # "Clusters2",
+  groupBy = "Clusters4BTmyelodiet",
+  bias = c("TSSEnrichment", "log10(nFrags)"),
+  testMethod = "wilcoxon"
+)
+markersPeaks
+
+markerList <- getMarkers(markersPeaks, cutOff = "FDR <= 0.01 & Log2FC >= 1")
+markerList
+markerList$C12
+
+markerList <- getMarkers(markersPeaks, cutOff = "FDR <= 0.01 & Log2FC >= 1", returnGR = TRUE)
+markerList
+markerList$C12
+```
+
+C9
+chr18   79375052-79375552  Mbp
+chr10   16942316-16942816
+chr13   89959551-89960051  Cd244a
+ chr3 164487649-164488149  Ptpn1
+
+```{r}
+write.table(
+  markerList$C9,
+  paste0("cluster.C9_DAR.FDRle001_Log2FCge1.genes.txt"),
+  row.names = FALSE,
+  col.names = TRUE,
+  quote = FALSE,
+  sep = "\t")
+
+tgt = "C8"
+Z = sign(assay(markersPeaks, "Log2FC", withDimnames = TRUE)) *
+  qnorm(
+    as.matrix(assay(markersPeaks, "Pval", withDimnames = TRUE) / 2),
+    lower.tail = FALSE)
+output = data.frame(
+  name = rowData(markersPeaks)$name,
+  Z = Z[[tgt]])
+write.table(
+  output,
+  paste0("cluster.", tgt, "_genes.Z.rnk"),
+  row.names = FALSE,
+  col.names = FALSE,
+  quote = FALSE,
+  sep = "\t")
+```
+
+
+## 11.2 Plotting Marker Peaks in ArchR
+### 11.2.1 Marker Peak Heatmaps
+
+```{r}
+heatmapPeaks <- plotMarkerHeatmap(
+  seMarker = markersPeaks, 
+  cutOff = "FDR <= 0.1 & Log2FC >= 0.5",
+  transpose = TRUE
+)
+
+draw(heatmapPeaks, heatmap_legend_side = "bot", annotation_legend_side = "bot")
+
+plotPDF(heatmapPeaks,
+        name = "Peak-Marker-Heatmap",
+        width = 8, height = 6,
+        ArchRProj = proj5, addDOC = FALSE)
+```
+
+### 11.2.2 Marker Peak MA and Volcano Plots
+
+```{r}
+pma <- plotMarkers(seMarker = markersPeaks, name = "C9", cutOff = "FDR <= 0.1 & Log2FC >= 1", plotAs = "MA")
+pma
+
+pv <- plotMarkers(seMarker = markersPeaks, name = "C9", cutOff = "FDR <= 0.1 & Log2FC >= 1", plotAs = "Volcano")
+pv
+
+# plotPDF(pma, pv, name = "Erythroid-Markers-MA-Volcano", width = 5, height = 5, ArchRProj = projHeme5, addDOC = FALSE)
+```
+
+### 11.2.3 Marker Peaks in Browser Tracks
+
+```{r}
+p <- plotBrowserTrack(
+    ArchRProj = proj5, 
+    groupBy = "Clusters4res05", # "Clusters2", 
+    geneSymbol = c("Nlrp3"),
+    features =  getMarkers(markersPeaks, cutOff = "FDR <= 0.1 & Log2FC >= 1", returnGR = TRUE)["C12"],
+    upstream = 50000,
+    downstream = 50000
+)
+
+grid::grid.newpage()
+grid::grid.draw(p$Nlrp3)
+
+# plotPDF(p, name = "Plot-Tracks-With-Features", width = 5, height = 5, ArchRProj = projHeme5, addDOC = FALSE)
+```
+
+## 11.3 Pairwise Testing Between Groups
+
+```{r}
+markerTest <- getMarkerFeatures(
+  ArchRProj = proj5, 
+  useMatrix = "PeakMatrix",
+  # groupBy = "Clusters4res05", # "Clusters2",
+  groupBy = "Clusters4BTmyelodiet",
+  testMethod = "wilcoxon",
+  bias = c("TSSEnrichment", "log10(nFrags)"),
+  # useGroups = "C9",
+  # bgdGroups = "C8",
+  useGroups = "myelo_HFC",
+  bgdGroups = "myelo_sp",
+)
+getMarkers(
+  markerTest,
+  cutOff = "FDR <= 0.01 & Log2FC >= 1", returnGR = TRUE)$C9
+
+x = lapply(
+  paste0("C", c(10:11, 13:17)),
+  function (bgd) {
+    mt <- getMarkerFeatures(
+      ArchRProj = proj5, 
+      useMatrix = "PeakMatrix",
+      groupBy = "Clusters2",
+      testMethod = "wilcoxon",
+      bias = c("TSSEnrichment", "log10(nFrags)"),
+      useGroups = "C12",
+      bgdGroups = bgd,
+    )
+    gr = getMarkers(
+      mt,
+      cutOff = "FDR <= 0.01 & Log2FC >= 1", returnGR = TRUE)
+    ov = GenomicRanges::findOverlaps(
+      markerList$C12,
+      gr$C12,
+      select = "first")
+    return(! is.na(ov))
+  }
+)
+x = (do.call(pmin, x) > 0)
+markerList$C12[x, ]
+```
+
+Clusters4res05, C9 vs C8
+FDR <= 0.01 & Log2FC >= 1
+chr1 198528203-198528703  LOC308990
+chr5 127405596-127406096  Lrp8
+chr7 143848930-143849430  Rarg
+chr8   75686749-75687249  Anxa2
+
+FDR <= 0.01 & Log2FC <= 1
+chr10   61891373-61891873  Smg6
+chr16   71295273-71295773  Fgfr1
+chr10   31122394-31122894  Sox30 Adam19
+
+
+Basic cell functional genes are detected.
+Maybe the search conditions are inappropriate
+TODO: bgd C10 C11 C13-C17
+TODO: wider signal
+TODO: GREAT
+
+GRanges object with 235 ranges and 3 metadata columns:
+        seqnames              ranges strand |    Log2FC         FDR  MeanDiff
+           <Rle>           <IRanges>  <Rle> | <numeric>   <numeric> <numeric>
+    [1]    chr19       932332-932832      * |   4.52336 7.04219e-23  0.317675
+Tk2
+    [2]     chr9   16425725-16426225      * |   4.62644 3.09141e-22  0.287891
+Tbcc
+    [3]     chr2 236509400-236509900      * |   4.33104 9.55290e-21  0.251414
+    [4]     chr4   67056277-67056777      * |   4.75781 6.02731e-19  0.276610
+    [5]    chr13   48531218-48531718      * |   4.38428 7.34858e-18  0.267285
+
+
+GRanges object with 384 ranges and 3 metadata columns:
+        seqnames              ranges strand |    Log2FC         FDR
+           <Rle>           <IRanges>  <Rle> | <numeric>   <numeric>
+    [1]     chr5 154519055-154519555      * |   2.88047 4.38479e-10
+E2F2
+    [2]     chr1 161954647-161955147      * |   4.75316 6.49054e-10
+NARS2
+    [3]    chr10   61361083-61361583      * |   3.90936 2.32291e-09
+RAP1GAP2 (orthologue)
+regulates secretion of dense granules from platelets at sites of endothelial damage
+    [4]    chr10   37287700-37288200      * |   4.15956 1.77388e-08
+Jade2
+    [5]    chr14     3569284-3569784      * |   3.84262 3.28218e-08
+    ...      ...                 ...    ... .       ...         ...
+  [380]     chr4   67157874-67158374      * |   1.35424  0.00978440
+  [381]     chr8   97462911-97463411      * |   2.28179  0.00978565
+  [382]     chr8   90821175-90821675      * |   2.34380  0.00979108
+  [383]     chr1 231363411-231363911      * |   2.13535  0.00981145
+  [384]     chr3   93850062-93850562      * |   2.13073  0.00994300
+
+
+```{r}
+pma <- plotMarkers(seMarker = markerTest, name = "C12", cutOff = "FDR <= 0.1 & abs(Log2FC) >= 1", plotAs = "MA")
+pma
+
+pv <- plotMarkers(seMarker = markerTest, name = "C12", cutOff = "FDR <= 0.1 & abs(Log2FC) >= 1", plotAs = "Volcano")
+pv
+
+# plotPDF(pma, pv, name = "Erythroid-vs-Progenitor-Markers-MA-Volcano", width = 5, height = 5, ArchRProj = projHeme5, addDOC = FALSE)
+```
+
+### Export Differential Peaks
+
+```{r}
+identical(rowData(markersPeaks), rowData(markerTest))
+
+tgt = "C9" # target
+bgd = "C8" # background
+tgt = "myelo_HFC" # target
+bgd = "myelo_sp" # background
+plotdata =
+  sign(assay(markersPeaks, "Log2FC", withDimnames = TRUE)[, c(tgt, bgd)]) *
+  qnorm(
+    as.matrix(assay(markersPeaks, "Pval", withDimnames = TRUE)[, c(tgt, bgd)] / 2),
+    lower.tail = FALSE)
+diffaccess =
+  sign(assay(markerTest, "Log2FC", withDimnames = TRUE)) *
+  qnorm(
+    as.matrix(assay(markerTest, "Pval", withDimnames = TRUE) / 2),
+    lower.tail = FALSE)
+colnames(diffaccess) = "diffaccess"
+plotdata = cbind(plotdata, diffaccess)
+# For GeneScoreMatrix
+plotdata$name = rowData(markersPeaks)$name
+
+ggplot(
+  data = plotdata,
+  aes(x = .data[[tgt]],
+      # y = .data[[bgd]]
+      y = diffaccess
+      )) +
+  geom_bin2d() +
+  scale_fill_gradient(name = "count", trans = "log10") +
+  labs(x = paste0("Z-score for ", tgt),
+       # y = paste0("Z-score for ", bgd),
+       y = "Z-score for diffaccess",
+       title = "Accessibility of peaks")
+
+x = 
+  (assay(markersPeaks, "Log2FC", withDimnames = TRUE)[, tgt] > 1) &
+  (assay(markersPeaks, "FDR", withDimnames = TRUE)[, tgt] < 0.01) &
+  (assay(markerTest, "Log2FC", withDimnames = TRUE)[, 1] > 1) &
+  (assay(markerTest, "FDR", withDimnames = TRUE)[, 1] < 0.01) 
+
+xx = rowData(markersPeaks)[x, ]
+
+# For GeneScoreMatrix
+write.table(
+  xx$name,
+  paste0("cluster.", tgt, "vs", bgd, "_DAR.genes.txt"),
+  row.names = FALSE,
+  col.names = FALSE,
+  quote = FALSE)
+
+# For PeakMatrix
+xx = xx[, c("seqnames", "start", "end")]
+xx$name = paste0(xx$seqnames, ":", xx$start, "-", xx$end)
+xx$score = 0
+xx$strand = "."
+xx$start = xx$start - 1
+write.table(
+  xx,
+  "cluster.foo_DAR.bed",
+  row.names = FALSE,
+  col.names = FALSE,
+  quote = FALSE,
+  sep = "\t"
+)
+
+
+
+Z = sign(assay(markerTest, "Log2FC", withDimnames = TRUE)) *
+  qnorm(
+    as.matrix(assay(markerTest, "Pval", withDimnames = TRUE) / 2),
+    lower.tail = FALSE)
+output = data.frame(
+  name = rowData(markerTest)$name,
+  Z = Z[[tgt]])
+write.table(
+  output,
+  paste0("cluster.", tgt, "vs", bgd, "_genes.Z.rnk"),
+  row.names = FALSE,
+  col.names = FALSE,
+  quote = FALSE,
+  sep = "\t")
+```
+
+script_CrossMap
+
+Use website http://great.stanford.edu/public/html/
+
+## 12.1 Motif Enrichment in Differential Peaks
+
+14.926 mins 
+
+```{r}
+proj5 <- addMotifAnnotations(
+  ArchRProj = proj5,
+  motifSet = "cisbp",
+  species = "Mus musculus", # Homo sapiens",
+  name = "Motif")
+
+proj5@peakAnnotation@listData$Motif$motifSummary
+```
+
+`markerTest` was defined above
+
+```{r}
+motifsUp <- peakAnnoEnrichment(
+    seMarker = markerTest,
+    ArchRProj = proj5,
+    peakAnnotation = "Motif",
+    cutOff = "FDR <= 0.1 & Log2FC >= 0.5"
+  )
+
+motifsUp
+
+df <- data.frame(
+  TF = rownames(motifsUp),
+  mlog10Padj = assay(motifsUp)[,1])
+df <- df[order(df$mlog10Padj, decreasing = TRUE),]
+df$rank <- seq_len(nrow(df))
+head(df)
+```
+```{r}
+ggUp <- ggplot(df, aes(rank, mlog10Padj, color = mlog10Padj)) + 
+  geom_point(size = 1) +
+  ggrepel::geom_label_repel(
+        data = df[rev(seq_len(30)), ], aes(x = rank, y = mlog10Padj, label = TF), 
+        size = 1.5,
+        nudge_x = 2,
+        color = "black"
+  ) + theme_ArchR() + 
+  ylab("-log10(P-adj) Motif Enrichment") + 
+  xlab("Rank Sorted TFs Enriched") +
+  scale_color_gradientn(colors = paletteContinuous(set = "comet"))
+
+ggUp
+```
+
+```{r}
+motifsDo <- peakAnnoEnrichment(
+    seMarker = markerTest,
+    ArchRProj = proj5,
+    peakAnnotation = "Motif",
+    cutOff = "FDR <= 0.1 & Log2FC <= -0.5"
+  )
+
+motifsDo
+
+df <- data.frame(
+  TF = rownames(motifsDo),
+  mlog10Padj = assay(motifsDo)[,1])
+df <- df[order(df$mlog10Padj, decreasing = TRUE),]
+df$rank <- seq_len(nrow(df))
+head(df)
+```
+```{r}
+ggDo <- ggplot(df, aes(rank, mlog10Padj, color = mlog10Padj)) + 
+  geom_point(size = 1) +
+  ggrepel::geom_label_repel(
+        data = df[rev(seq_len(30)), ], aes(x = rank, y = mlog10Padj, label = TF), 
+        size = 1.5,
+        nudge_x = 2,
+        color = "black"
+  ) + theme_ArchR() + 
+  ylab("-log10(FDR) Motif Enrichment") +
+  xlab("Rank Sorted TFs Enriched") +
+  scale_color_gradientn(colors = paletteContinuous(set = "comet"))
+
+ggDo
+```
+
+```{r}
+plotPDF(ggUp, ggDo, name = "C12-vs-C11-Markers-Motifs-Enriched", width = 5, height = 5, ArchRProj = proj5, addDOC = FALSE)
+```
+
+## 12.2 Motif Enrichment in Marker Peaks
+
+`markersPeaks` was defined above
+
+```{r}
+enrichMotifs <- peakAnnoEnrichment(
+    seMarker = markersPeaks,
+    ArchRProj = proj5,
+    peakAnnotation = "Motif",
+    cutOff = "FDR <= 0.1 & Log2FC >= 0.5"
+  )
+
+enrichMotifs
+```
+
+```{r}
+heatmapEM <- plotEnrichHeatmap(enrichMotifs, n = 3, transpose = TRUE)
+
+ComplexHeatmap::draw(heatmapEM, heatmap_legend_side = "bot", annotation_legend_side = "bot")
+
+plotPDF(heatmapEM, name = "Motifs-Enriched-Marker-Heatmap", width = 8, height = 6, ArchRProj = proj5, addDOC = FALSE)
+```
+
+# 13 ChromVAR Deviatons Enrichment with ArchR
+
+A deviation is a bias-corrected measurement of how far the per-cell accessibility of a given feature (i.e motif) deviates from the expected accessibility based on the average of all cells or samples.
+
+## 13.1 Motif Deviations
+
+```{r}
+if("Motif" %ni% names(proj5@peakAnnotation)){
+    proj5 <- addMotifAnnotations(
+      ArchRProj = proj5,
+      motifSet = "cisbp",
+      name = "Motif")
+}
+
+proj5 <- addBgdPeaks(proj5)
+```
+
+This function has an optional parameter called matrixName that allows us to define the name of the deviations matrix that will be stored in the Arrow files. If we do not provide a value to this parameter, as in the example below, this function creates a matrix name by adding the word "Matrix" to the name of the peakAnnotation. The example below creates a deviations matrix in each of our Arrow files called "MotifMatrix".
+
+48.483 mins
+
+```{r}
+proj5 <- addDeviationsMatrix(
+  ArchRProj = proj5, 
+  peakAnnotation = "Motif",
+  force = TRUE
+)
+```
+
+rank the variability of the deviations
+
+```{r}
+plotVarDev <- getVarDeviations(proj5, name = "MotifMatrix", plot = TRUE)
+
+plotVarDev
+
+plotPDF(plotVarDev, name = "Variable-Motif-Deviation-Scores", width = 5, height = 5, ArchRProj = proj5, addDOC = FALSE)
+```
+
+extract a subset of motifs for downstream analysis
+
+```{r}
+motifs <- c("BCL11A", "HNF4A", "HNF4G", "SPI1", "SPIB", "ERG")
+markerMotifs <- getFeatures(proj5, select = paste(motifs, collapse="|"), useMatrix = "MotifMatrix")
+markerMotifs
+
+markerMotifs <- grep("z:", markerMotifs, value = TRUE)
+markerMotifs
+```
+
+```{r}
+p <- plotGroups(ArchRProj = proj5, 
+  groupBy = "Clusters2", 
+  colorBy = "MotifMatrix", 
+  name = markerMotifs,
+  imputeWeights = getImputeWeights(proj5)
+)
+
+p2 <- lapply(seq_along(p), function(x){
+  if(x != 1){
+    p[[x]] + guides(color = FALSE, fill = FALSE) + 
+    theme_ArchR(baseSize = 6) +
+    theme(plot.margin = unit(c(0.1, 0.1, 0.1, 0.1), "cm")) +
+    theme(
+        axis.text.y=element_blank(), 
+        axis.ticks.y=element_blank(),
+        axis.title.y=element_blank()
+    ) + ylab("")
+  }else{
+    p[[x]] + guides(color = FALSE, fill = FALSE) + 
+    theme_ArchR(baseSize = 6) +
+    theme(plot.margin = unit(c(0.1, 0.1, 0.1, 0.1), "cm")) +
+    theme(
+        axis.ticks.y=element_blank(),
+        axis.title.y=element_blank()
+    ) + ylab("")
+  }
+})
+do.call(cowplot::plot_grid, c(list(nrow = 1, rel_widths = c(2, rep(1, length(p2) - 1))),p2))
+
+plotPDF(p, name = "Plot-Groups-Deviations-w-Imputation", width = 5, height = 5, ArchRProj = proj5, addDOC = FALSE)
+```
+
+```{r}
+p <- plotEmbedding(
+    ArchRProj = proj5, 
+    colorBy = "MotifMatrix", 
+    name = sort(markerMotifs), 
+    embedding = "UMAP",
+    imputeWeights = getImputeWeights(proj5)
+)
+
+p2 <- lapply(p, function(x){
+    x + guides(color = FALSE, fill = FALSE) + 
+    theme_ArchR(baseSize = 6.5) +
+    theme(plot.margin = unit(c(0, 0, 0, 0), "cm")) +
+    theme(
+        axis.text.x=element_blank(), 
+        axis.ticks.x=element_blank(), 
+        axis.text.y=element_blank(), 
+        axis.ticks.y=element_blank()
+    )
+})
+do.call(cowplot::plot_grid, c(list(ncol = 3),p2))
+
+# Plot-UMAP-markerMotifs-MotifMatrix.pdf
+```
+
+To see how these TF deviation z-scores compare to the inferred gene expression via gene scores of the corresponding TF genes, we can overlay the gene scores for each of these TFs on the UMAP embedding.
+
+Differs somewhat from MotifMatrix !!
+MotifMatrix z:HNF4A_662 differs among hepatocytes in Clusters2
+GeneScoreMatrix Hnf4a is uniform across hepatocytes
+
+```{r}
+markerRNA <- getFeatures(proj5, select = paste(motifs, collapse="|"), useMatrix = "GeneScoreMatrix")
+markerRNA <- markerRNA[markerRNA %ni% c("Catsperg","Tcerg1l", "Tcerg1", "Ergic3", "Rergl", "Ergic2", "Erg28" )]
+markerRNA
+```
+
+```{r}
+p <- plotEmbedding(
+    ArchRProj = proj5, 
+    colorBy = "GeneScoreMatrix", 
+    name = sort(markerRNA), 
+    embedding = "UMAP",
+    imputeWeights = getImputeWeights(proj5)
+)
+
+p2 <- lapply(p, function(x){
+    x + guides(color = FALSE, fill = FALSE) + 
+    theme_ArchR(baseSize = 6.5) +
+    theme(plot.margin = unit(c(0, 0, 0, 0), "cm")) +
+    theme(
+        axis.text.x=element_blank(), 
+        axis.ticks.x=element_blank(), 
+        axis.text.y=element_blank(), 
+        axis.ticks.y=element_blank()
+    )
+})
+do.call(cowplot::plot_grid, c(list(ncol = 3),p2))
+
+# Plot-UMAP-markerMotifs-GeneScoreMatrix.pdf
+```
+
+```{r}
+# x = getMatrixFromProject(proj5, "MotifMatrix")
+# saveRDS(x, file = "MotifMatrix.rds")
+matmotif = readRDS("MotifMatrix.rds")
+matmotif@assays@data@listData =
+  matmotif@assays@data@listData["z"] # drop deviations assay
+
+# here, mat is for GeneScore, defined above
+genename = "Hnf4a"
+motifname = "Hnf4a_665"
+plot(assay(mat)[genename, ], assay(matmotif)[motifname, ])
+
+
+# here, overwrite mat
+mat = matmotif
+
+dimnames(mat)[[1]] = 
+  sub("_.*", "", dimnames(mat)[[1]])
+# Tcfap2a_1 -> Tcfap2a
+
+attach("~/human/publicrat/homologs/mouse_to_rat_homologs.Rda")
+x = mouse_to_rat_homologs$RGD.symbol[
+  match(
+    rownames(mat),
+    mouse_to_rat_homologs$NCBI.gene..formerly.Entrezgene..accession)]
+dimnames(mat)[[1]] = x
+x = which(! is.na(rownames(mat)))
+mat = mat[x, ]
+
+x = which(! duplicated(rownames(mat)))
+mat = mat[x, ]
+
+# mat = mat[, which(mat$Clusters4BTmyelo == "hepato")]
+
+# Library size correct (qn)
+assay(mat) = as.matrix(assay(mat))
+x = preprocessCore::normalize.quantiles(assay(mat))
+assay(mat, withDimnames = FALSE) = x
+
+# # Case 2: Don't correct for samples; Clusters4BTmyelodiet Clusters4BTmyelospdietcombined
+# assay(mat) = assay(mat) - rowMeans(assay(mat))
+
+# Case 3: correct for samples, allowing a few cell types to divert
+# matMotif.qn_case3.Nfkb1_Rreb1.pdf
+x = apply(
+  assay(mat),
+  1,
+  function (y) {
+    shiftbySample =
+      tibble(y = y,
+             Sample = as.character(mat$Sample),
+             Clusters4BTmyelo = as.character(mat$Clusters4BTmyelo)) %>%
+      dplyr::group_by(Clusters4BTmyelo, Sample) %>%
+      dplyr::summarize(m = mean(y), .groups = "drop") %>%
+      dplyr::group_by(Clusters4BTmyelo) %>%
+      dplyr::mutate(mbyct = mean(m)) %>%
+      dplyr::ungroup() %>%
+      dplyr::mutate(shift = m - mbyct) %>%
+      dplyr::group_by(Sample) %>%
+      dplyr::summarize(shiftbySample = median(shift), .groups = "drop")
+    return(
+      y -
+        shiftbySample$shiftbySample[
+          match(
+            as.character(mat$Sample),
+            shiftbySample$Sample)])
+  })
+assay(mat) = t(x)
+assay(mat) = assay(mat) - rowMeans(assay(mat))
+
+# GOTO LINEAR REGRESSION of GeneScoreMatrix
+```
+
+
+# 14.1 Motif Footprinting
+
+the first thing we need to do is obtain the positions of the relevant motifs. To do this, we call the getPositions() function. This function has an optional parameter called name which can accept the name of the peakAnnotation object from which we would like to obtain the positions. If name = NULL, then ArchR will use the first entry in the peakAnnotation slot. In the example shown below, we do not specify name and ArchR uses the first entry which is our CIS-BP motifs.
+
+```{r}
+motifPositions <- getPositions(proj5)
+motifPositions
+```
+
+```{r}
+motifs <- c("BCL11A", "HNF4A", "HNF4G", "SPI1", "SPIB", "ERG")
+markerMotifs <- unlist(lapply(motifs, function(x) grep(x, names(motifPositions), value = TRUE)))
+markerMotifs
+```
+
+To accurately profile TF footprints, a large number of reads are required. Therefore, cells are grouped to create pseudo-bulk ATAC-seq profiles that can be then used for TF footprinting. These pseudo-bulk profiles are stored as group coverage files which we originally created in a previous chapter to perform peak calling.
+
+```{r}
+seFoot <- getFootprints(
+  ArchRProj = proj5, 
+  positions = motifPositions[markerMotifs], 
+  groupBy = "Clusters2"
+)
+```
+
+# 14.2 Normalization of Footprints for Tn5 Bias
+## 14.2.1 Subtracting the Tn5 Bias
+
+```{r}
+plotFootprints(
+  seFoot = seFoot,
+  ArchRProj = proj5, 
+  normMethod = "Subtract",
+  plotName = "Footprints-Subtract-Bias",
+  addDOC = FALSE,
+  smoothWindow = 5
+)
+```
+
+## 14.2.2 Dividing by the Tn5 Bias
+
+```{r}
+plotFootprints(
+  seFoot = seFoot,
+  ArchRProj = proj5, 
+  normMethod = "Divide",
+  plotName = "Footprints-Divide-Bias",
+  addDOC = FALSE,
+  smoothWindow = 5
+)
+```
+
+## 14.3 Feature Footprinting
+
+A TSS insertion profile is just a specialized sub-case of footprinting.
+
+```{r}
+seTSS <- getFootprints(
+  ArchRProj = proj5, 
+  positions = GRangesList(TSS = getTSS(proj5)), 
+  groupBy = "Clusters2",
+  flank = 2000
+)
+```
+
+```{r}
+plotFootprints(
+  seFoot = seTSS,
+  ArchRProj = proj5, 
+  normMethod = "None",
+  plotName = "TSS-No-Normalization",
+  addDOC = FALSE,
+  flank = 2000,
+  flankNorm = 100
+)
+```
+
+## 15.2 Co-accessibility with ArchR
+
+create low-overlapping aggregates of single cells prior to these analyses
+
+One thing to note about co-accessibility analysis is that it often identified cell type-specific peaks as being co-accessibile. This is because these peaks are often all accessible together within a single cell type and often all not accessible in all other cell types. This drives a strong correlation but does not necessarily mean that there is a regulatory relationship between these peaks.
+
+TODO: adjust by major cell-type ?? by Cluster2 ??
+
+```{r}
+proj5 <- addCoAccessibility(
+    ArchRProj = proj5,
+    reducedDims = "myLSI"
+)
+```
+
+```{r}
+cA <- getCoAccessibility(
+    ArchRProj = proj5,
+    corCutOff = 0.5,
+    resolution = 1,
+    returnLoops = FALSE
+)
+cA
+```
+
+The indexes of queryHits and subjectHits mentioned above apply to this GRanges object.
+
+```{r}
+metadata(cA)[[1]]
+```
+
+```{r}
+cA <- getCoAccessibility(
+    ArchRProj = proj5,
+    corCutOff = 0.5,
+    resolution = 1,
+    returnLoops = TRUE
+)
+cA[[1]]
+```
+
+If, instead, we decrease the resolution of our loops to resolution = 1000, this can help with over-plotting of co-accessibility interactions.
+
+```{r}
+cA <- getCoAccessibility(
+    ArchRProj = proj5,
+    corCutOff = 0.5,
+    resolution = 1000,
+    returnLoops = TRUE
+)
+cA[[1]]
+```
+
+## 15.2.1 Plotting browser tracks of Co-accessibility
+
+```{r}
+markerGenes = c(
+  "Cyp2e1",
+  "Alb",
+  "Dcn",
+  "Stab2",
+  "Csf1r",
+  "Csf3r",
+  "Ebf1",
+  "Prf1",
+  "Cd3g",
+  
+  "Nlrp3"
+)
+p <- plotBrowserTrack(
+    ArchRProj = proj5, 
+    groupBy = "Clusters2", 
+    geneSymbol = markerGenes, 
+    upstream = 50000,
+    downstream = 50000,
+    loops = getCoAccessibility(proj5)
+)
+
+grid::grid.newpage()
+grid::grid.draw(p$Cyp2e1)
+
+plotPDF(plotList = p, 
+    name = "Plot-Tracks-Marker-Genes-with-CoAccessibility.pdf", 
+    ArchRProj = proj5, 
+    addDOC = FALSE, width = 5, height = 5)
+```
+
+# 15.4 Identification of Positive TF-Regulators
+
+identify TFs whose gene expression is positively correlated to changes in the accessibility of their corresponding motif.  ArchR can identify TFs whose inferred gene scores are correlated to their chromVAR TF deviation z-scores.
+
+low-overlapping cell aggregates
+
+## 15.4.1 Step 1. Identify Deviant TF Motifs
+
+```{r}
+seGroupMotif <- getGroupSE(
+  ArchRProj = proj5,
+  useMatrix = "MotifMatrix",
+  groupBy = "Clusters2")
+```
+
+Because this SummarizedExperiment object comes from the MotifMatrix is has two seqnames - "deviations" and "z" - corresponding to the raw deviations and deviation z-scores from chromVAR.
+
+```{r}
+seGroupMotif
+head(rowData(seGroupMotif))
+tail(rowData(seGroupMotif))
+```
+
+We can subset this SummarizedExperiment to just the deviation z-scores.
+
+```{r}
+seZ <- seGroupMotif[rowData(seGroupMotif)$seqnames=="z",]
+```
+
+Then we can identify the maximum delta in z-score between all clusters. This will be helpful in stratifying motifs based on the degree of variation observed across clusters.
+
+```{r}
+rowData(seZ)$maxDelta <-
+  lapply(
+    seq_len(ncol(seZ)),
+    function(x){
+      rowMaxs(assay(seZ) - assay(seZ)[,x])
+    }) %>%
+  Reduce("cbind", .) %>%
+  rowMaxs
+```
+
+## 15.4.2 Step 2. Identify Correlated TF Motifs and TF Gene Score/Expression
+
+To identify TFs whose motif accessibility is correlated with with their own gene activity (either by gene score or gene expression), we use the correlateMatrices() function and provide the two matrices that we are interested in, in this case the GeneScoreMatrix and the MotifMatrix. As mentioned previously, these correlations are determined across many low-overlapping cell aggregates determined in the lower dimension space specified in the reducedDims parameter.
+
+```{r}
+corGSM_MM <- correlateMatrices(
+    ArchRProj = proj5,
+    useMatrix1 = "GeneScoreMatrix",
+    useMatrix2 = "MotifMatrix",
+    reducedDims = "myLSI"
+)
+
+corGSM_MM
+```
+
+## 15.4.3 Step 3. Add Maximum Delta Deviation to the Correlation Data Frame
+
+```{r}
+corGSM_MM$maxDelta <- rowData(seZ)[match(corGSM_MM$MotifMatrix_name, rowData(seZ)$name), "maxDelta"]
+```
+
+## 15.4.4 Step 4. Identify Positive TF Regulators
+
+we consider positive regulators as those TFs whose correlation between motif and gene score (or gene expression) is greater than 0.5 with an adjusted p-value less than 0.01 and a maximum inter-cluster difference in deviation z-score that is in the top quartile.
+
+```{r}
+corGSM_MM <- corGSM_MM[order(abs(corGSM_MM$cor), decreasing = TRUE), ]
+corGSM_MM <- corGSM_MM[which(!duplicated(gsub("\\-.*","",corGSM_MM[,"MotifMatrix_name"]))), ]
+corGSM_MM$TFRegulator <- "NO"
+corGSM_MM$TFRegulator[which(corGSM_MM$cor > 0.5 & corGSM_MM$padj < 0.01 & corGSM_MM$maxDelta > quantile(corGSM_MM$maxDelta, 0.75))] <- "YES"
+sort(corGSM_MM[corGSM_MM$TFRegulator=="YES",1])
+```
+```{r}
+p <- ggplot(data.frame(corGSM_MM), aes(cor, maxDelta, color = TFRegulator)) +
+  geom_point() + 
+  theme_ArchR() +
+  geom_vline(xintercept = 0, lty = "dashed") + 
+  scale_color_manual(values = c("NO"="darkgrey", "YES"="firebrick3")) +
+  xlab("Correlation To Gene Score") +
+  ylab("Max TF Motif Delta") +
+  scale_y_continuous(
+    expand = c(0,0), 
+    limits = c(0, max(corGSM_MM$maxDelta)*1.05)
+  )
+
+p
+```
+
