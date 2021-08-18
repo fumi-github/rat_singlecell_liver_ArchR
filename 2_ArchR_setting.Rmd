@@ -1,0 +1,80 @@
+---
+title: "ArchR setting"
+output: html_notebook
+---
+
+Load `ArchR` and the following settings before any analyses.
+Jump to the appropriate section, according to the reference genome,
+rn6 or rn7.
+
+# Make rn7 reference
+
+Since rn7 is not yet provided in Bioconductor,
+we need to generate the R object.
+
+```{r}
+library(BSgenome)
+forgeBSgenomeDataPkg("/home/fumi/human/publicrat/rn7/BSgenome.Rnorvegicus.UCSC.rn7-seed")
+```
+
+```{bash}
+R CMD build BSgenome.Rnorvegicus.UCSC.rn7
+R CMD check BSgenome.Rnorvegicus.UCSC.rn7_1.0.0.tar.gz
+R CMD INSTALL BSgenome.Rnorvegicus.UCSC.rn7_1.0.0.tar.gz
+```
+
+# Load settings for rn7
+
+```{r}
+# For addClusters(algorithm = 4); see ArchR and Seurat manuals
+reticulate::use_condaenv(
+  condaenv = "leidenalg_pip",
+  conda = "/usr/local/anaconda2/bin/conda",
+  required = TRUE)
+reticulate::py_config()
+reticulate::py_module_available("leidenalg")
+```
+
+```{r}
+Sys.setenv(HDF5_USE_FILE_LOCKING = "FALSE") # For ZFS
+library(ArchR)
+addArchRThreads(threads = 12)
+# addArchRChrPrefix(chrPrefix = FALSE) 
+```
+
+```{r}
+library(BSgenome.Rnorvegicus.UCSC.rn7)
+genomeAnnotation = createGenomeAnnotation(
+  genome = BSgenome.Rnorvegicus.UCSC.rn7,
+  filterChr = c("chrM",
+                grep("_",
+                     seqnames(BSgenome.Rnorvegicus.UCSC.rn7@seqinfo),
+                     value = TRUE)))
+genomeAnnotation
+```
+
+# Load settings for rn6
+
+```{r}
+# For addClusters(algorithm = 4); see ArchR and Seurat manuals
+reticulate::use_condaenv(
+  condaenv = "leidenalg_pip",
+  conda = "/usr/local/anaconda2/bin/conda",
+  required = TRUE)
+reticulate::py_config()
+reticulate::py_module_available("leidenalg")
+```
+
+```{r}
+Sys.setenv(HDF5_USE_FILE_LOCKING = "FALSE") # For ZFS
+library(ArchR)
+addArchRThreads(threads = 12)
+# addArchRChrPrefix(chrPrefix = FALSE) 
+```
+
+```{r}
+library(BSgenome.Rnorvegicus.UCSC.rn6)
+genomeAnnotation = createGenomeAnnotation(
+  genome = BSgenome.Rnorvegicus.UCSC.rn6)
+genomeAnnotation
+```
