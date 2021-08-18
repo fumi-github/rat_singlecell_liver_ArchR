@@ -2,29 +2,6 @@
 title: "ArchR"
 output: html_notebook
 ---
-```{r}
-# For addClusters(algorithm = 4)
-reticulate::use_condaenv(
-  condaenv = "leidenalg_pip",
-  conda = "/usr/local/anaconda2/bin/conda",
-  required = TRUE)
-reticulate::py_config()
-reticulate::py_module_available("leidenalg")
-```
-
-```{r}
-Sys.setenv(HDF5_USE_FILE_LOCKING = "FALSE") # For ZFS
-library(ArchR)
-addArchRThreads(threads = 12)
-# addArchRChrPrefix(chrPrefix = FALSE) 
-```
-
-```{r}
-library(BSgenome.Rnorvegicus.UCSC.rn6)
-genomeAnnotation = createGenomeAnnotation(
-  genome = BSgenome.Rnorvegicus.UCSC.rn6)
-genomeAnnotation
-```
 
 ```{r}
 library(TxDb.Rnorvegicus.UCSC.rn6.refGene)
