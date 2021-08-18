@@ -4,7 +4,7 @@ output: html_notebook
 ---
 
 Load `ArchR` and the following settings before any analyses.
-Jump to the appropriate section, according to the reference genome,
+Jump to the appropriate section, either for the reference genome
 rn6 or rn7.
 
 # Make rn7 reference
