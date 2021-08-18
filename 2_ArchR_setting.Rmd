@@ -14,13 +14,26 @@ we need to generate the R object.
 
 ```{r}
 library(BSgenome)
-forgeBSgenomeDataPkg("/home/fumi/human/publicrat/rn7/BSgenome.Rnorvegicus.UCSC.rn7-seed")
+forgeBSgenomeDataPkg(
+  "/home/fumi/human/publicrat/rn7/BSgenome.Rnorvegicus.UCSC.rn7-seed")
 ```
 
 ```{bash}
 R CMD build BSgenome.Rnorvegicus.UCSC.rn7
 R CMD check BSgenome.Rnorvegicus.UCSC.rn7_1.0.0.tar.gz
 R CMD INSTALL BSgenome.Rnorvegicus.UCSC.rn7_1.0.0.tar.gz
+```
+
+```{r}
+library(BSgenome.Rnorvegicus.UCSC.rn7)
+library(GenomicFeatures)
+rn7_txdb = makeTxDbFromGFF(
+  "/home/fumi/human/publicrat/rn7/refGene.gtf",
+  organism = "Rattus norvegicus",
+  taxonomyId = 10116,
+  circ_seqs = "chrM",
+  chrominfo = seqinfo(BSgenome.Rnorvegicus.UCSC.rn7))
+saveDb(rn7_txdb, "TxDb.Rnorvegicus.UCSC.rn7.refGene.sqlite")
 ```
 
 # Load settings for rn7
@@ -37,7 +50,7 @@ reticulate::py_module_available("leidenalg")
 
 ```{r}
 Sys.setenv(HDF5_USE_FILE_LOCKING = "FALSE") # For ZFS
-library(ArchR)
+suppressPackageStartupMessages(library(ArchR))
 addArchRThreads(threads = 12)
 # addArchRChrPrefix(chrPrefix = FALSE) 
 ```
@@ -51,6 +64,18 @@ genomeAnnotation = createGenomeAnnotation(
                      seqnames(BSgenome.Rnorvegicus.UCSC.rn7@seqinfo),
                      value = TRUE)))
 genomeAnnotation
+```
+
+```{r}
+TxDb.Rnorvegicus.UCSC.rn7.refGene =
+  AnnotationDbi::loadDb(
+    "/home/fumi/human/publicrat/rn7/TxDb.Rnorvegicus.UCSC.rn7.refGene.sqlite")
+library(org.Rn.eg.db)
+geneAnnotation = createGeneAnnotation(
+  TxDb = TxDb.Rnorvegicus.UCSC.rn7.refGene,
+  OrgDb = org.Rn.eg.db,
+  annoStyle = "SYMBOL")
+geneAnnotation
 ```
 
 # Load settings for rn6
@@ -67,7 +92,7 @@ reticulate::py_module_available("leidenalg")
 
 ```{r}
 Sys.setenv(HDF5_USE_FILE_LOCKING = "FALSE") # For ZFS
-library(ArchR)
+suppressPackageStartupMessages(library(ArchR))
 addArchRThreads(threads = 12)
 # addArchRChrPrefix(chrPrefix = FALSE) 
 ```
@@ -77,4 +102,13 @@ library(BSgenome.Rnorvegicus.UCSC.rn6)
 genomeAnnotation = createGenomeAnnotation(
   genome = BSgenome.Rnorvegicus.UCSC.rn6)
 genomeAnnotation
+```
+
+```{r}
+library(TxDb.Rnorvegicus.UCSC.rn6.refGene)
+library(org.Rn.eg.db)
+geneAnnotation = createGeneAnnotation(
+  TxDb = TxDb.Rnorvegicus.UCSC.rn6.refGene,
+  OrgDb = org.Rn.eg.db)
+geneAnnotation
 ```
