@@ -3,15 +3,6 @@ title: "ArchR"
 output: html_notebook
 ---
 
-```{r}
-library(TxDb.Rnorvegicus.UCSC.rn6.refGene)
-library(org.Rn.eg.db)
-geneAnnotation = createGeneAnnotation(
-  TxDb = TxDb.Rnorvegicus.UCSC.rn6.refGene,
-  OrgDb = org.Rn.eg.db)
-geneAnnotation
-```
-
 # 1.6 Creating Arrow Files
 
 ```{r}
