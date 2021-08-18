@@ -112,3 +112,15 @@ geneAnnotation = createGeneAnnotation(
   OrgDb = org.Rn.eg.db)
 geneAnnotation
 ```
+In `TxDb.Rnorvegicus.UCSC.rn6.refGene`, the gene with
+Official Symbol = Eif5 and
+Entrez Gene ID = 108348073, 56783 is duplicated.
+The latter seems obsolete.
+
+```{r}
+geneAnnotation$genes[
+  geneAnnotation$genes$symbol ==
+    geneAnnotation$genes$symbol[
+      duplicated(geneAnnotation$genes$symbol)]]
+```
+
