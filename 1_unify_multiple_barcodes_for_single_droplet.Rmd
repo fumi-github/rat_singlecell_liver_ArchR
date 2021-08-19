@@ -4,6 +4,8 @@ output: html_notebook
 ---
 # bap2 post-processing of CellRanger BAM file
 
+This step is performed separately for each 10x experiment.
+
 ```{bash}
 # python virtual environment
 source ~/bap2/bin/activate
