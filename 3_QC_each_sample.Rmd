@@ -1,0 +1,351 @@
+---
+title: "QC each sample"
+output: html_notebook
+---
+
+Run the code for each sample.
+
+```{r}
+# radix = "m154207"
+# radix = "m154211"
+# radix = "m167108"
+# radix = "m168101"
+radix = "m167203"
+```
+
+# Create arrow files and projects
+
+```{r}
+ArrowFiles = createArrowFiles(
+  inputFiles = 
+    # "../cellranger/m154207/bap2/final/possorted_bam.bap.bam",
+    # "../cellranger/m154211/bap2/final/possorted_bam.bap.bam",
+    # "../cellranger/m167108/bap2/final/possorted_bam.bap.bam",
+    # "../cellranger/m168101/bap2/final/possorted_bam.bap.bam",
+    "../cellranger/m167203/bap2/final/possorted_bam.bap.bam",
+  sampleNames =
+    # "m154207",
+    # "m154211",
+    # "m167108",
+    # "m168101",
+    "m167203",
+  geneAnnotation = geneAnnotation,
+  genomeAnnotation = genomeAnnotation,
+  minTSS = 4,
+  minFrags = 1000,
+  maxFrags = 1e+6,
+  bcTag = "DB",
+  bamFlag = list(
+    isProperPair = TRUE,
+    isSecondaryAlignment = FALSE,
+    isSupplementaryAlignment = FALSE),
+  addTileMat = TRUE,
+  addGeneScoreMat = TRUE
+)
+ArrowFiles
+```
+
+Create projects
+
+```{r}
+Sys.setenv(HDF5_USE_FILE_LOCKING = "FALSE") # For ZFS
+proj1 = ArchRProject(
+  ArrowFiles = ArrowFiles,
+  copyArrows = FALSE,
+  geneAnnotation = geneAnnotation,
+  genomeAnnotation = genomeAnnotation,
+  showLogo = FALSE
+)
+getAvailableMatrices(proj1)
+```
+
+# Barcode QC
+
+Plotting QC metrics
+
+```{r}
+bap2QC = read.csv(
+  paste0("../cellranger/", radix, "/bap2/final/possorted_bam.QCstats.csv"),
+  header = TRUE)
+bap2QC$barcode =
+  paste0(sub("_.*", "", radix), "#", bap2QC$DropBarcode)
+all(proj1$cellNames %in% bap2QC$barcode)
+bap2QC = bap2QC[match(proj1$cellNames, bap2QC$barcode), ]
+
+proj1$duplicate_ratio =
+  bap2QC$duplicateProportion
+proj1$mitochondrial_ratio =
+  bap2QC$totalMitoFrags / 
+  (bap2QC$totalNuclearFrags + bap2QC$totalMitoFrags)
+proj1$log10_passed_reads_TSS =
+  log(bap2QC$uniqueNuclearFrags *
+        bap2QC$tssProportion + 1, 10) # TSS in nuclear chrm
+proj1$TSS_ratio = bap2QC$tssProportion
+```
+
+Plot and determine threshold.
+
+```{r}
+library(viridisLite);
+library(ggplot2);
+p1 = ggplot(
+  data = as.data.frame(getCellColData(proj1)),
+  # aes(x = log10(nFrags), y = TSSEnrichment)) +
+  # aes(x = log10(ReadsInTSS), y = TSSEnrichment)) +
+  aes(x = log10_passed_reads_TSS, y = TSS_ratio)) +
+  # geom_point(size = 0.1, aes(col = duplicate_ratio)) +
+  geom_point(size = 0.1, aes(col = mitochondrial_ratio)) +
+  scale_color_gradientn(colours = viridis(256, option = "D")) +
+  labs(title = radix) +
+  scale_y_log10()
+# p1
+ggsave("reads_TSS.png", p1, dpi = 150)
+
+proj2 = proj1[which(
+  proj1$log10_passed_reads_TSS >= 3 &
+    proj1$TSS_ratio >= 0.075   # 0.075 0.15
+), ];
+proj2
+# m154207              3.0 0.075   3259
+# m154211              3.0 0.075   3997
+# m167108              3.0 0.15    3675
+# m168101              3.0 0.15    3428
+# m167203              3.0 0.075   2570
+```
+
+# More barcode QC: fraction of reads from single chromosomes
+
+Inspired by ataqv
+
+```{r}
+readsperchr = data.frame()
+for (c in paste0("chr", c(1:20, "X"))) { # rat 20
+  x = sparseMatrixStats::colSums2(
+    assay(
+      getMatrixFromProject(
+        proj2,
+        useMatrix = "TileMatrix",
+        useSeqnames = c,
+        binarize = TRUE)))
+  readsperchr = rbind(
+    readsperchr,
+    as.data.frame(
+      matrix(x, nrow = 1)))
+}
+readsperchr = t(as.matrix(readsperchr))
+readsperchr = readsperchr / rowSums(readsperchr)
+readsperchr = t(t(readsperchr) - colMeans(readsperchr))
+readsperchr = readsperchr / sd(readsperchr)
+p1 = ggplot(
+  data = data.frame(
+    x = 1:nrow(readsperchr),
+    y = sort(rowSums(abs(readsperchr)))),
+  aes(x = x, y = y)) +
+  geom_point()
+ggsave("foo.png", p1, dpi = 150)
+
+# remove outliers
+x = (rowSums(abs(readsperchr)) < 40)
+table(x)
+proj3 = proj2[which(x), ]
+proj3
+# m154207 3229
+# m154211 3967
+# m167108 3654
+# m168101 3405
+# m167203 2545
+```
+
+# More barcode QC: nucleosome banding score
+
+Nucleosome Banding Scores
+https://atlas.gs.washington.edu/mouse-atac/docs/
+
+```{r}
+write.table(gsub(".*possorted_bam_", "", proj3$cellNames),
+            file = "mybarcodes.txt",
+            quote = FALSE,
+            row.names = FALSE,
+            col.names = FALSE)
+```
+
+Prepare bam file that excludes chrM.
+chrM is already omitted in bap2 output.
+
+```{bash}
+cd bap2/final
+
+# extract the header file
+samtools view possorted_bam.bap.bam -H > possorted.header.sam
+
+# create a bam file with the barcode embedded into the read name
+cat <( cat possorted.header.sam ) \
+<( samtools view possorted_bam.bap.bam | awk '{for (i=12; i<=NF; ++i) { if ($i ~ "^DB:Z:possorted_bam_BC"){ td[substr($i,1,2)] = substr($i,20,length($i)-19); } }; printf "%s:%s\n", td["DB"], $0 }' ) \
+| samtools view -bS - > possorted.snap.bam
+```
+
+Extract insert-size distributions
+
+```{bash}
+python ~/human/singlecell/get_insert_size_distribution_per_cell.py  ../cellranger/m167203/bap2/final/possorted.snap.bam insert_sizes.txt --barcodes mybarcodes.txt
+# ../cellranger/m154207/bap2/final/possorted_bam.bap.bam
+# ../cellranger/m154211/bap2/final/possorted_bam.bap.bam
+# ../cellranger/m167108/bap2/final/possorted_bam.bap.bam
+# ../cellranger/m168101/bap2/final/possorted_bam.bap.bam
+# ../cellranger/m167203/bap2/final/possorted_bam.bap.bam
+```
+
+Generate banding scores
+
+```{bash}
+Rscript ~/human/singlecell/calculate_nucleosome_banding_scores.R insert_sizes.txt banding_scores.txt --barcodes mybarcodes.txt
+```
+
+"The output file in this case is banding_scores.txt, a TSV separated file with cell and nucleosome_score as columns. Lower scores indicate less apparent banding. We recommend plotting a distribution of all scores and setting a cutoff. In our case there was an long left tail that could be used to establish a pass-fail threshold for inclusion in downstream analysis."
+
+```{r}
+data = read.csv("banding_scores.txt")
+p1 = ggplot(
+  data = data.frame(
+    x = 1:nrow(data),
+    y = log10(sort(data$banding_score))),
+  aes(x = x, y = y)) +
+  geom_point()
+ggsave("foo.png", p1, dpi = 150)
+
+b = quantile(log10(data$banding_score), c(0.01, 0.99))
+x = data$cell[
+  data$banding_score > 10^b[1] &
+    data$banding_score < 10^b[2]]
+x =
+  paste0(sub("_.*", "", radix), "#possorted_bam_", x)
+x = (proj3$cellNames %in% x)
+table(x)
+proj4 = proj3[which(x), ]
+proj4
+# m154207 3163
+# m154211 3887
+# m167108 3580
+# m168101 3335
+# m167203 2493
+```
+
+# More barcode QC: scPloidy
+
+```{r}
+bc = gsub(".*possorted_bam_", "", proj4$cellNames)
+write.table(bc,
+            file = "mybarcodes.scPloidy_input.txt",
+            quote = FALSE,
+            row.names = FALSE,
+            col.names = FALSE)
+```
+
+Run scPloidy
+
+```{r}
+multiplet = read.table("multiplet.multinom.txt", header = TRUE)
+all(bc %in% multiplet$barcode)
+x = ! multiplet$multiplet.multinom[match(bc, multiplet$barcode)]
+table(x)
+proj5 = proj4[which(x), ]
+proj5
+# m154207 3048
+# m154211 3715
+# m167108 3322
+# m168101 3167
+# m167203 2404
+```
+
+# More barcode QC: doublet enrichment score
+
+```{r}
+proj6 = addDoubletScores(
+    input = proj5
+)
+```
+
+Check for hepatocyte vs macrophage
+
+```{r}
+## Not good
+# countmapped = function(project, gene) {
+#   x = 
+#     getMatrixFromProject(
+#       project,
+#       useMatrix = "GeneScoreMatrix")
+#   return(assay(x)[which(x@elementMetadata$name == gene), ])
+# }
+countmapped = function(project, gene) {
+  gr = getGenes(project, gene)
+  x = 
+    getMatrixFromProject(
+      project,
+      useMatrix = "TileMatrix",
+      useSeqnames = as.character(seqnames(gr)),
+      binarize = TRUE)
+  overlap =
+    GenomicRanges::findOverlaps(
+      GRanges(
+        x@elementMetadata@listData$seqnames,
+        IRanges(
+          x@elementMetadata@listData$start,
+          width = 500)),
+      gr,
+      select = "first")
+  overlap = which(! is.na(overlap))
+  countmapped =
+    sparseMatrixStats::colSums2(
+      assay(x)[overlap, ])
+  return(countmapped)
+}
+
+plotdata = data.frame(
+  barcode = proj6$cellNames,
+  Alb   = countmapped(proj6, "Alb"),
+  Csf1r = countmapped(proj6, "Csf1r"),
+  DoubletEnrichment = proj6$DoubletEnrichment)
+
+library(viridisLite);
+library(ggplot2);
+p1 = ggplot(
+  data = plotdata,
+  aes(x = Alb,
+      y = Csf1r)) +
+  geom_jitter(aes(col = log10(DoubletEnrichment + 1)),
+             size = 0.5) +
+  scale_color_gradientn(colours = viridis(256, option = "D"))
+ggsave("multiplet_hepatocyte_macrophage.pdf", p1)
+```
+
+Threshold set to 10
+
+```{r}
+quantile(
+  proj6$DoubletEnrichment,
+  seq(0.9, 1, 0.01))
+
+proj7 =
+  proj6[which(proj6$DoubletEnrichment <= 10), ]
+proj7
+# m154207 2893
+# m154211 3579
+# m167108 3058
+# m168101 2974
+# m167203 2111
+```
+
+# Save result
+
+```{r}
+saveArchRProject(
+  ArchRProj = proj7,
+  dropCells = TRUE
+)
+
+write.table(gsub(".*possorted_bam_", "", proj7$cellNames),
+            file = "mybarcodes.doubletremoved.txt",
+            quote = FALSE,
+            row.names = FALSE,
+            col.names = FALSE)
+```
