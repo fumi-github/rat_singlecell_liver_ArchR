@@ -1,0 +1,567 @@
+---
+title: "LSI and clustering of tile matrix"
+output: html_notebook
+---
+
+# Combine projects for all samples
+
+```{r}
+proj1a = loadArchRProject("../m154207/ArchR_bap2/ArchROutput/")
+proj1b = loadArchRProject("../m154211/ArchR_bap2/ArchROutput/")
+proj1c = loadArchRProject("../m167108/ArchR_bap2/ArchROutput/")
+proj1d = loadArchRProject("../m168101/ArchR_bap2/ArchROutput/")
+proj1e = loadArchRProject("../m167203/ArchR_bap2/ArchROutput/")
+
+proj1 = ArchRProject(
+  ArrowFiles = c(
+    "../m154207/ArchR_bap2/ArchROutput/ArrowFiles/m154207.arrow",
+    "../m154211/ArchR_bap2/ArchROutput/ArrowFiles/m154211.arrow",
+    "../m167108/ArchR_bap2/ArchROutput/ArrowFiles/m167108.arrow",
+    "../m168101/ArchR_bap2/ArchROutput/ArrowFiles/m168101.arrow",
+    "../m167203/ArchR_bap2/ArchROutput/ArrowFiles/m167203.arrow"),
+  copyArrows = FALSE,
+  geneAnnotation = geneAnnotation,
+  genomeAnnotation = genomeAnnotation,
+  showLogo = FALSE
+)
+
+proj1 = proj1[
+  which(proj1$cellNames %in%
+          c(proj1a$cellNames,
+            proj1b$cellNames,
+            proj1c$cellNames,
+            proj1d$cellNames,
+            proj1e$cellNames)), ]
+table(proj1$Sample)
+getAvailableMatrices(proj1)
+
+rm(proj1a, proj1b, proj1c, proj1d, proj1e)
+```
+
+Load ploidy computed by scPloidy
+
+```{r}
+ploidy =
+  do.call(
+    rbind,
+    lapply(
+      unique(proj1$Sample),
+      function (s) {
+        ploidy =
+          read.table(
+            paste0("../",
+                   s,
+                   "/ArchR_bap2/ploidy.txt"),
+            header = TRUE,
+            sep = "\t")
+        ploidy$barcode =
+          paste0(s, "#possorted_bam_", ploidy$barcode)
+        return(ploidy)
+      }))
+all(proj1$cellNames %in% ploidy$barcode)
+proj1$ploidy =
+  ploidy$ploidy[match(proj1$cellNames, ploidy$barcode)]
+rm(ploidy)
+```
+
+# Loading and QC of tile matrix (1st round)
+
+Load tile matrix
+
+```{r}
+mat =
+  getMatrixFromProject(
+    proj1,
+    useMatrix = "TileMatrix",
+    binarize = TRUE)
+mat$ploidy =
+  proj1$ploidy[match(colnames(mat), proj1$cellNames)]
+```
+
+QC
+
+```{r}
+# colSm will not be updated. To be used later in QC plot.
+colSm <- Matrix::colSums(assay(mat))
+
+rowSm <- Matrix::rowSums(assay(mat))
+
+# Clean up zero/singleton rows
+# Actually redundant, because later filtered by adjvar
+idx <- which(rowSm > 1)
+mat <- mat[idx, ]
+rowSm <- rowSm[idx]
+
+# Exclude a small number of ~100% inserted windows
+# Actually redundant, because later filtered by adjvar
+idx <- which(rowSm/ncol(mat) < 0.85)
+mat <- mat[idx, ]
+rowSm <- rowSm[idx]
+```
+
+# LSI (1st round)
+
+Smaller submatrix for faster computation
+
+```{r}
+adjvarmin = 0.4
+
+# variance after IDF weighting
+adjvar = log2(ncol(mat)/rowSm)^2 *
+  (rowSm/ncol(mat)) *
+  (1 - rowSm/ncol(mat))
+
+qplot(
+  x = rowSm/ncol(mat),
+  y = adjvar,
+  geom = "bin2d")
+quantile(adjvar, seq(0, 1, 0.1))
+
+idx = which(adjvar > adjvarmin)
+mat2 = mat[idx, ]
+rowSm2 = rowSm[idx]
+```
+
+Library size correct to unit vector
+
+```{r}
+assay(mat2) = assay(mat2) %*%
+  Diagonal(x = 1/sqrt(colSums(assay(mat2)^2)))
+```
+
+Sample batch correct mat2
+
+```{r}
+target = rowMeans(assay(mat2))
+
+sampleLabels = unique(as.character(mat$Sample))
+for (s in sampleLabels) {
+  print(s)
+  x = assay(mat2) %*% Diagonal(x = as.numeric(mat2$Sample == s))
+  y = assay(mat2) %*% Diagonal(x = as.numeric(mat2$Sample != s))
+  rowMeansx = rowSums(x) / sum(mat2$Sample == s)
+  correct = target / rowMeansx
+  correct[rowMeansx == 0] = 1
+  correctcap =
+    quantile(correct, 0.75, na.rm = TRUE)^2 /
+    quantile(correct, 0.5, na.rm = TRUE)
+  correct = pmin(correct, correctcap)
+  x = Diagonal(x = correct) %*% x
+
+  assay(mat2) = x + y
+  rm(x, y, rowMeansx, correct, correctcap)
+}
+```
+
+IDF (inverse document frequency)
+rowSm2 is calculated from original binary matrix
+
+```{r}
+assay(mat2) = Diagonal(x = log2(ncol(mat2) / rowSm2)) %*%
+  assay(mat2)
+```
+
+Row centralization is mandatory!
+[Skillicorn, Understanding complex datasets. p.51]
+
+```{r}
+gc()
+set.seed(1)
+
+# irlba only provides column centralization, not for rows
+svd <- irlba::irlba(t(assay(mat2)), 30, 30,
+                    center = rowMeans(assay(mat2)))
+svdback = svd
+svd$u = svdback$v
+svd$v = svdback$u
+rm(svdback)
+```
+
+Plot inspection
+
+```{r}
+library(viridisLite)
+
+plotdata = as.data.frame(svd$v)
+plotdata$colSm    = colSm
+plotdata$ploidy   = mat2$ploidy
+plotdata$Sample   = as.character(mat2$Sample)
+
+ggplot(
+  data = plotdata,
+  aes(x = V1,
+      y = V2)) +
+  geom_point(aes(
+    # col = log10(colSm)
+    col = ploidy
+    ),
+    size = 0.1) +
+  # scale_color_gradientn(colours = viridis(256, option = "D")) +
+  facet_grid(rows = vars(Sample)) +
+  geom_rug()
+```
+
+In above plot, higher dimensions appear to be random noise.
+
+```{r}
+dmax = 10
+x = svd$v[, 1:dmax] %*% diag(svd$d[1:dmax])
+rownames(x) = colnames(mat2)
+colnames(x) = paste0("LSI", seq(1, ncol(x)))
+```
+
+```{r}
+table(proj1$cellNames %in% rownames(x))
+proj1@reducedDims[[
+  "myLSI"
+  ]] <-
+  SimpleList(matDR = x[proj1$cellNames, ],
+             params = list(),
+             date = Sys.time(),
+             scaleDims = NA, 
+             corToDepth = NA)
+```
+
+# Remove outlier barcodes
+
+Outliers are apparent in PC1 & PC2
+
+```{r}
+gc()
+distmat = as.matrix(dist(svd$v[, 1:2] %*% diag(svd$d[1:2])))
+distmat = distmat^2
+distmat = apply(
+  distmat,
+  1,
+  function (x) {
+    sum(head(sort(x), 5 + 1)) # distance to itself is 0
+  })
+plot(log10(sort(distmat)))
+outlier = (distmat > 10^-2)
+table(outlier) # 14516    99
+table(outlier, as.character(mat2$Sample))
+# outlier m154207 m154211 m167108 m167203 m168101
+#   FALSE    2891    3574    3001    2104    2946
+#   TRUE        2       5      57       7      28
+notoutlier = colnames(mat2)[! outlier]
+rm(distmat)
+
+ggplot(
+  data = plotdata,
+  aes(x = V1,
+      y = V2)) +
+  geom_point(aes(col = outlier),
+             size = 0.1) +
+  facet_grid(rows = vars(Sample)) +
+  geom_rug()
+```
+
+```{r}
+proj1b = proj1[which(proj1$cellNames %in% notoutlier), ]
+proj1b@reducedDims[["myLSI"]]$matDR =
+  (proj1b@reducedDims[["myLSI"]]$matDR)[proj1b$cellNames, ]
+```
+
+```{r}
+rm(mat, mat2, svd, x)
+```
+
+# Clustering (1st round)
+
+```{r}
+proj1b <- addClusters(
+    input = proj1b,
+    reducedDims = "myLSI",
+    method = "Seurat",
+    algorithm = 4, # Leiden
+    name = "Clusters",
+    force = TRUE
+)
+table(proj1b$Sample, proj1b$Clusters)
+```
+
+Check cell types
+
+```{r}
+markerGenes = c(
+  "Alb", "Apoc3", "Cyp2e1", "Cyp2f4",
+  "Epcam", "Krt19",
+  "Dcn", "Des", "Lrat",
+  "Stab2",
+  "Csf3r",
+  "Elane", "Ly6g6c", "Ly6g6d", "Ly6g6e", "Mpo",
+  "Csf1r",
+  "Lyz2",
+  "Marco",
+  "Ebf1",
+  "Cd3g", "Gata3",
+  "Gzma", "Prf1"
+)
+```
+
+```{r}
+p <- plotBrowserTrack(
+    ArchRProj = proj1b, 
+    groupBy = "Clusters",
+    geneSymbol = markerGenes, 
+    upstream = 50000,
+    downstream = 50000
+)
+
+plotPDF(plotList = p,
+    name = "Plot-Tracks-Marker-Genes-Clusters.pdf", 
+    ArchRProj = proj1b, 
+    addDOC = FALSE, width = 5, height = 5)
+```
+
+```{r}
+proj1b$Clusterscoarse = NA
+proj1b$Clusterscoarse[
+  proj1b$Clusters %in% paste0("C", 1:8)] = "hepatocyte"
+proj1b$Clusterscoarse[
+  proj1b$Clusters %in% paste0("C", c(9:10, 17:20))] = "WBC"
+proj1b$Clusterscoarse[
+  proj1b$Clusters %in% paste0("C", 13:16)] = "endothelial cell"
+proj1b$Clusterscoarse[
+  proj1b$Clusters %in% paste0("C", 11:12)] = "stellate"
+
+ClusterscoarseLabels =
+  unique(proj1b$Clusterscoarse)
+```
+
+# Loading and QC of tile matrix (2nd round)
+
+Load tile matrix
+
+```{r}
+mat =
+  getMatrixFromProject(
+    proj1b,
+    useMatrix = "TileMatrix",
+    binarize = TRUE)
+```
+
+QC
+
+```{r}
+colSm <- Matrix::colSums(assay(mat))
+rowSm <- Matrix::rowSums(assay(mat))
+
+# Clean up zero/singleton rows
+idx <- which(rowSm > 1)
+mat <- mat[idx, ]
+rowSm <- rowSm[idx]
+
+# Exclude a small number of ~100% inserted windows
+idx <- which(rowSm/ncol(mat) < 0.85)
+mat <- mat[idx, ]
+rowSm <- rowSm[idx]
+```
+
+# LSI (2nd round)
+
+Smaller submatrix for faster computation
+
+```{r}
+# variance after IDF weighting
+adjvar = log2(ncol(mat)/rowSm)^2 *
+  (rowSm/ncol(mat)) *
+  (1 - rowSm/ncol(mat))
+
+idx = which(adjvar > adjvarmin)
+mat2 = mat[idx, ]
+rowSm2 <- rowSm[idx]
+```
+
+Library size correct to unit vector
+
+```{r}
+assay(mat2) = assay(mat2) %*%
+  Diagonal(x = 1/sqrt(colSums(assay(mat2)^2)))
+```
+
+Sample batch correct mat2
+
+```{r}
+for (cl in ClusterscoarseLabels) {
+  print(cl)
+  target = rowMeans(
+    assay(mat2)[, which(mat2$Clusterscoarse == cl),
+                drop = FALSE])
+  
+  for (s in sampleLabels) {
+    print(s)
+    x = assay(mat2) %*%
+      Diagonal(x = as.numeric(mat2$Clusterscoarse == cl &
+                                mat2$Sample == s))
+    y = assay(mat2) %*%
+      Diagonal(x = as.numeric(mat2$Clusterscoarse != cl |
+                                mat2$Sample != s))
+    rowMeansx = rowSums(x) / sum(mat2$Clusterscoarse == cl &
+                                   mat2$Sample == s)
+    correct = target / rowMeansx
+    correct[rowMeansx == 0] = 1
+    correctcap =
+      quantile(correct, 0.75, na.rm = TRUE)^2 /
+      quantile(correct, 0.5, na.rm = TRUE)
+    correct = pmin(correct, correctcap)
+    x = Diagonal(x = correct) %*% x
+
+    assay(mat2) = x + y
+    rm(x, y, rowMeansx, correct, correctcap)
+  }
+}
+```
+
+IDF (inverse document frequency)
+rowSm2 is calculated from original binary matrix
+
+```{r}
+assay(mat2) = Diagonal(x = log2(ncol(mat2) / rowSm2)) %*%
+  assay(mat2)
+```
+
+Row centralization is mandatory!
+[Skillicorn, Understanding complex datasets. p.51]
+
+```{r}
+gc()
+set.seed(1)
+
+# irlba only provides column centralization, not for rows
+svd <- irlba::irlba(t(assay(mat2)), 30, 30,
+                    center = rowMeans(assay(mat2)))
+svdback = svd
+svd$u = svdback$v
+svd$v = svdback$u
+rm(svdback)
+```
+
+Plot inspection
+
+```{r}
+library(viridisLite)
+
+plotdata = as.data.frame(svd$v)
+plotdata$colSm          = colSm
+plotdata$ploidy         = mat2$ploidy
+plotdata$Clusterscoarse = mat2$Clusterscoarse
+plotdata$Sample         = as.character(mat2$Sample)
+
+ggplot(
+  data = plotdata,
+  aes(x = V1,
+      y = V2)) +
+  geom_point(aes(
+    # col = log10(colSm)
+    col = Clusterscoarse
+    # col = ploidy
+    ),
+    size = 0.1) +
+  # scale_color_gradientn(colours = viridis(256, option = "D")) +
+  facet_grid(rows = vars(Sample)) +
+  geom_rug()
+```
+
+In above plot, higher dimensions appear to be random noise.
+
+```{r}
+dmax = 8
+x = svd$v[, 1:dmax] %*% diag(svd$d[1:dmax])
+rownames(x) = colnames(mat2)
+colnames(x) = paste0("LSI", seq(1, ncol(x)))
+```
+
+```{r}
+table(proj1b$cellNames %in% rownames(x))
+proj1b@reducedDims[[
+  "myLSI2"
+  ]] <-
+  SimpleList(matDR = x[proj1b$cellNames, ],
+             params = list(),
+             date = Sys.time(),
+             scaleDims = NA, 
+             corToDepth = NA)
+```
+
+```{r}
+rm(mat, mat2, svd, x)
+```
+
+# Clustering (2nd round)
+
+```{r}
+proj1b <- addClusters(
+    input = proj1b,
+    reducedDims = "myLSI2",
+    method = "Seurat",
+    algorithm = 4, # Leiden
+    name = "Clusters2",
+    force = TRUE
+)
+
+proj2 = proj1b
+```
+
+```{r}
+table(proj2$Sample, proj2$Clusters)
+table(proj2$Sample, proj2$Clusters2)
+```
+
+Check cell types
+
+```{r}
+p <- plotBrowserTrack(
+    ArchRProj = proj2, 
+    groupBy = "Clusters2",
+    geneSymbol = markerGenes, 
+    upstream = 50000,
+    downstream = 50000
+)
+
+plotPDF(plotList = p,
+    name = "Plot-Tracks-Marker-Genes-Clusters2.pdf", 
+    ArchRProj = proj2, 
+    addDOC = FALSE, width = 5, height = 5)
+```
+
+Clusters2
+1-10  hepatocyte
+11    B-cell, T-cell, NK cell
+12    non-inflammatory macrophage, neutrophil
+13    inflammatory macrophage, neutrophil
+14-15 stellate
+16-19 endothelial cell
+
+```{r}
+plotdata = as.data.frame(proj2@reducedDims[[
+  "myLSI2"
+  ]]$matDR)
+all(proj2$cellNames == rownames(proj2@reducedDims[[
+  "myLSI2"
+  ]]$matDR))
+plotdata$celltype = proj2$Clusters2
+plotdata$Sample   = proj2$Sample
+
+ggplot(
+  data = plotdata,
+  aes(x = LSI1,
+      y = LSI2)) +
+  geom_point(aes(
+    col = celltype),
+    size = 0.1) +
+  facet_grid(rows = vars(Sample)) +
+  geom_rug()
+```
+
+# Save result
+
+```{r}
+# saveArchRProject(
+#   ArchRProj = proj2,
+#   outputDirectory = "Save-Proj2",
+#   dropCells = TRUE
+# )
+
+proj2 = loadArchRProject("Save-Proj2/")
+```
