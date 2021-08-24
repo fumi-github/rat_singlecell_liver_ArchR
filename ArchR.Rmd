@@ -172,66 +172,6 @@ No:  150Ktopvar adjvar02 adjvar05
 ArchRBrowser(proj2)
 ```
 
-## 9.2 Making Pseudo-bulk Replicates
-
-Don't run this in parallel.
-
-```{r}
-proj4 <- addGroupCoverages(
-  ArchRProj = proj2,
-  groupBy = "Clusters2") # "Clusters"
-```
-
-## 10.2 Calling Peaks w/ Macs2
-
-```{r}
-pathToMacs2 <- "/usr/local/anaconda2/bin/macs2"
-```
-
-Below took 185.841 mins
-266.104 mins
-
-```{r}
-Sys.setenv(HDF5_USE_FILE_LOCKING = "FALSE")
-proj4 <- addReproduciblePeakSet(
-    ArchRProj = proj4, 
-    groupBy = "Clusters2", # "Clusters"
-    pathToMacs2 = pathToMacs2,
-    genomeSize = 2743300000
-)
-
-getPeakSet(proj4)
-```
-
-## 10.4 Add Peak Matrix
-
-```{r}
-# saveArchRProject(
-#   ArchRProj = proj4,
-#   outputDirectory = "Save-Proj4",
-#   load = FALSE)
-proj4 = loadArchRProject("Save-Proj4/")
-
-# saveArchRProject(
-#   ArchRProj = proj4,
-#   # outputDirectory = "Save-Proj4.featurenormbyscale2",
-#   # outputDirectory = "Save-Proj4.adjvar02.featurenormbyscale2",
-#   # outputDirectory = "Save-Proj4.adjvar03.featurenormbyscale2",
-#   # outputDirectory = "Save-Proj4.adjvar04.featurenormbyscale2",
-#   # outputDirectory = "Save-Proj4.adjvar05.featurenormbyscale2",
-#   outputDirectory = "Save-Proj4.adjvar04Leiden.featurenormbyscale2",
-#   load = FALSE)
-proj4 = loadArchRProject("Save-Proj4.featurenormbyscale2/")
-proj4 = loadArchRProject("Save-Proj4.adjvar04.featurenormbyscale2/")
-proj4 = loadArchRProject("Save-Proj4.adjvar04Leiden.featurenormbyscale2/")
-
-# This needs executed only once
-# proj5 <- addPeakMatrix(proj4)
-proj5 = proj4
-
-getAvailableMatrices(proj5)
-```
-
 ## Clustering based on peaks
 
 Load peak matrix
