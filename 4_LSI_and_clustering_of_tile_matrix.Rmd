@@ -370,7 +370,7 @@ adjvar = log2(ncol(mat)/rowSm)^2 *
 
 idx = which(adjvar > adjvarmin)
 mat2 = mat[idx, ]
-rowSm2 <- rowSm[idx]
+rowSm2 = rowSm[idx]
 ```
 
 Library size correct to unit vector
