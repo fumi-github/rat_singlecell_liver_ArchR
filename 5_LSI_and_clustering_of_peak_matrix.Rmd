@@ -483,8 +483,8 @@ proj5b <- addClusters(
     input = proj5b,
     reducedDims = "myLSI4",
     method = "Seurat",
-    algorithm = 4,
-    name = "Clusters4", # Leiden
+    algorithm = 4, # Leiden
+    name = "Clusters4",
     force = TRUE
 )
 
@@ -541,6 +541,137 @@ ggplot(
     size = 0.1) +
   facet_grid(rows = vars(Sample)) +
   geom_rug()
+```
+
+# Clustering with taylored parameter
+
+```{r}
+proj6 <- addClusters(
+    input = proj6,
+    reducedDims = "myLSI4",
+    method = "Seurat",
+    algorithm = 4, # Leiden
+    resolution = 0.6,
+    name = "Clusters4res06",
+    force = TRUE
+)
+```
+
+Clusters4res05
+1-6   hepatocyte
+7     B-cell, T-cell, NK cell
+8     non-inflammatory macrophage, neutrophil
+9     inflammatory macrophage, neutrophil
+12-13 stellate
+10-11 endothelial cell
+
+Clusters4res055
+1-7   hepatocyte (5 cholangiocyte)
+13    T-cell, NK cell
+12    B-cell
+10    non-inflammatory macrophage, neutrophil
+11    inflammatory macrophage, neutrophil
+8-9   stellate
+14-16 endothelial cell
+
+** Clusters4res06 **
+1-7   hepatocyte
+14    T-cell, NK cell
+15    B-cell
+10    non-inflammatory macrophage, neutrophil
+16    inflammatory macrophage, neutrophil
+8-9   stellate
+11-13 endothelial cell
+
+Clusters4res065
+1-9   hepatocyte
+15    T-cell, NK cell
+14    B-cell
+12    non-inflammatory macrophage, neutrophil
+13    inflammatory macrophage, neutrophil
+10-11 stellate
+16-18 endothelial cell
+
+For markers
+- Lyz2 for inflammatory macrophage
+- Marco for non-inflammatory macrophage
+Clusters4res06 was more appropriate than Clusters4res055
+Clusters4res06 was more appropriate than Clusters4res065
+
+```{r}
+p <- plotBrowserTrack(
+    ArchRProj = proj6, 
+    groupBy = "Clusters4res06",
+    geneSymbol = markerGenes, 
+    upstream = 50000,
+    downstream = 50000
+)
+
+plotPDF(plotList = p,
+    name = "Plot-Tracks-Marker-Genes-Clusters4res06.pdf", 
+    ArchRProj = proj6, 
+    addDOC = FALSE, width = 5, height = 5)
+```
+
+```{r}
+g = proj6$Clusters4res06
+g[g %in% paste0("C", 1:7)] = "hepatocyte"
+g[g %in% paste0("C", c(10, 14:16))] = "WBC"
+g[g %in% paste0("C", 8:9)] = "stellate"
+g[g %in% paste0("C", 11:13)] = "endothelial"
+proj6$Clusterscoarse2 = g
+
+g = proj6$Clusters4res06
+g[g %in% paste0("C", 1:7)] = "hepato"
+g[g %in% paste0("C", c(10, 16))] = "myelo"
+g[g %in% paste0("C", 14)] = "T_NK"
+g[g %in% paste0("C", 15)] = "B"
+g[g %in% paste0("C", 8:9)] = "stellate"
+g[g %in% paste0("C", 11:14)] = "endothelial"
+proj6$Clusters4BTmyelo = g
+```
+
+## Uniform Manifold Approximation and Projection (UMAP)
+
+```{r}
+proj6 <- addUMAP(
+    ArchRProj = proj6, 
+    reducedDims = "myLSI4",
+    name = "UMAP", 
+    metric = "cosine"
+)
+
+p1 <- plotEmbedding(
+  ArchRProj = proj6,
+  colorBy = "cellColData",
+  name = "Sample",
+  embedding = "UMAP")
+
+p2 <- plotEmbedding(
+  ArchRProj = proj6,
+  colorBy = "cellColData",
+  name = "Clusters4res06",
+  embedding = "UMAP")
+
+ggAlignPlots(p1, p2, type = "h")
+
+plotPDF(
+  p1,p2,
+  name = "Plot-UMAP-Sample-Clusters.pdf",
+  ArchRProj = proj6,
+  addDOC = FALSE,
+  width = 5,
+  height = 5)
+```
+
+## Make pseudo-bulk replicates
+
+Don't run this in parallel.
+
+```{r}
+proj6 <- addGroupCoverages(
+  ArchRProj = proj6,
+  groupBy = "Clusters4res06")
 ```
 
 # Save result
