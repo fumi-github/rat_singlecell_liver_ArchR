@@ -444,7 +444,7 @@ assay(mat) = round(assay(mat))
 ```{r}
 library(Linnorm)
 mat2 = expm1(Linnorm(assay(mat)))
-# saveRDS(mat2, file="mat2.rds")
+# saveRDS(mat2, file = "mat2.rds")
 ```
 
 Check
@@ -457,7 +457,7 @@ summary(colSums(mat2))
 plot(assay(mat)[, 1], mat2[, 1])
 ```
 
-# Impute GeneScoreMatrix, as in sc-RNAseq
+# Impute GeneScoreMatrix, as in sc-RNAseq; save result
 
 Run SAVER on different machines.
 https://mohuangx.github.io/SAVER/articles/saver-tutorial.html
@@ -493,7 +493,7 @@ mat2 = readRDS("mat2.rds")
 # saver6 = readRDS("saver6.rds")
 # saver.all <- combine.saver(list(saver1, saver2, saver3, saver4, saver5, saver6))
 # saveRDS(saver.all,
-#         file="GeneScoreMatrix.geneScaleFactor_1.scaleTo_skipped.Linnorm.saver.rds")
+#         file = "GeneScoreMatrix.geneScaleFactor_1.scaleTo_skipped.Linnorm.saver.rds")
 # rm(saver1, saver2, saver3, saver4, saver5, saver6, saver.all)
 
 saver.all = readRDS("GeneScoreMatrix.geneScaleFactor_1.scaleTo_skipped.Linnorm.saver.rds")
@@ -616,3 +616,95 @@ ggplot(
   geom_rug()
 ```
 
+# QC
+
+```{r}
+mat = getMatrixFromProject(proj6, useMatrix = "GeneScoreMatrix2")
+rownames(matsaver) = NULL
+assay(mat) = matsaver
+```
+
+The smallest value imputed by saver is 0.001
+Exclude low expression genes.
+
+```{r}
+idx = which(rowMeans(assay(mat) <= 0.001) < 0.01) # discard 159, keep 17280
+mat = mat[idx, ]
+```
+
+```{r}
+assay(mat) = log2(assay(mat)) # NOW LOG2 SCALE !!!
+```
+
+```{r}
+qplot(
+  x = rowMeans(assay(mat)),
+  y = rowSds(assay(mat)),
+  geom = "bin2d")
+```
+
+```{r}
+idx = which(rowMeans(assay(mat)) > log2(0.005)) # discard 2, keep 17278
+mat = mat[idx, ]
+```
+
+```{r}
+qplot(
+  x = rowMeans(assay(mat)),
+  y = rowSds(assay(mat)),
+  geom = "bin2d")
+```
+
+Define rownames. Omit duplicates of the same gene
+
+```{r}
+dimnames(mat)[[1]] = rowData(mat)$name
+
+x = ! duplicated(dimnames(mat)[[1]])
+mat = mat[which(x), ]
+```
+
+Library size correct (qn)
+
+```{r}
+x = preprocessCore::normalize.quantiles(assay(mat))
+assay(mat, withDimnames = FALSE) = x
+```
+
+Row centralize
+
+```{r}
+assay(mat) = assay(mat) - rowMeans(assay(mat))
+```
+
+Compute and plot SVD without sample batch correction
+
+```{r}
+set.seed(1)
+svd = irlba::irlba(assay(mat), nv = 20)
+plot(svd$d)
+ggplot(
+  data = as.data.frame(svd$v)) +
+  geom_point(aes(x = V1, y = V2), size = 0.3) +
+  facet_grid(
+    cols = vars(mat$Clusters4BTmyelo),
+    rows = vars(as.character(mat$Sample)))
+```
+
+The first two components capture
+A. sample batch effect, and
+B. difference between major cell types.
+In the following, we analyze the effect of diet intervention by comparing samples.
+Specifically, we compare nuclei of same cell type between different sample.
+Thus, we prefer to eliminate A, hoping that the removal of B does not harm.
+
+```{r}
+assay(mat) = assay(mat) -
+  svd$u[, 1:2] %*% diag(svd$d[1:2]) %*% t(svd$v[, 1:2])
+```
+
+# Save result
+
+```{r}
+saveRDS(mat, file = "matGeneScoreSamplebatchcorrected.rds")
+```
