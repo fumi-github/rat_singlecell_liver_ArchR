@@ -1,0 +1,110 @@
+---
+title: "MotifMatrix"
+output: html_notebook
+---
+
+# Add MotifMatrix
+
+```{r}
+proj6 = loadArchRProject("Save-Proj6/")
+```
+
+The following computation took 16 mins
+
+```{r}
+proj6 <- addMotifAnnotations(
+  ArchRProj = proj6,
+  motifSet = "cisbp",
+  species = "Mus musculus",
+  name = "Motif")
+
+proj6@peakAnnotation@listData$Motif$motifSummary
+```
+
+The following computation took 54 mins
+
+```{r}
+proj6 <- addBgdPeaks(proj6)
+
+proj6 <- addDeviationsMatrix(
+  ArchRProj = proj6, 
+  peakAnnotation = "Motif",
+  force = TRUE)
+```
+
+```{r}
+mat = getMatrixFromProject(proj6, "MotifMatrix")
+mat@assays@data@listData =
+  mat@assays@data@listData["z"] # drop deviations assay
+
+idx = which(rowSums(is.na(assay(mat))) == 0)
+mat = mat[idx, ]
+```
+
+Convert rownames to rat gene symbol
+
+```{r}
+dimnames(mat)[[1]] = 
+  sub("_.*", "", dimnames(mat)[[1]])
+# Tcfap2a_1 -> Tcfap2a
+
+attach("~/human/publicrat/homologs/mouse_to_rat_homologs.Rda")
+x = mouse_to_rat_homologs$RGD.symbol[
+  match(
+    rownames(mat),
+    mouse_to_rat_homologs$NCBI.gene..formerly.Entrezgene..accession)]
+dimnames(mat)[[1]] = x
+idx = which((! is.na(rownames(mat))) & (rownames(mat) != ""))
+mat = mat[idx, ]
+
+idx = which(! duplicated(rownames(mat)))
+mat = mat[idx, ]
+```
+
+# QC
+
+Library size correct (qn)
+
+```{r}
+assay(mat) = as.matrix(assay(mat))
+x = preprocessCore::normalize.quantiles(assay(mat))
+assay(mat, withDimnames = FALSE) = x
+```
+
+Row centralize
+
+```{r}
+assay(mat) = assay(mat) - rowMeans(assay(mat))
+```
+
+Compute and plot SVD without sample batch correction
+
+```{r}
+set.seed(1)
+svd = irlba::irlba(assay(mat), nv = 20)
+plot(svd$d)
+ggplot(
+  data = as.data.frame(svd$v)) +
+  geom_point(aes(x = V1, y = V2), size = 0.3) +
+  facet_grid(
+    cols = vars(mat$Clusters4BTmyelo),
+    rows = vars(as.character(mat$Sample)))
+```
+
+The first two components capture
+A. sample batch effect, and
+B. difference between major cell types.
+In the following, we analyze the effect of diet intervention by comparing samples.
+Specifically, we compare nuclei of same cell type between different sample.
+Thus, we prefer to eliminate A, hoping that the removal of B does not harm.
+
+```{r}
+assay(mat) = assay(mat) -
+  svd$u[, 1:2] %*% diag(svd$d[1:2]) %*% t(svd$v[, 1:2])
+```
+
+# Save result
+
+```{r}
+saveRDS(mat, file = "matMotifSamplebatchcorrected.rds")
+```
