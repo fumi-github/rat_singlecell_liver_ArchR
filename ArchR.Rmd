@@ -1100,39 +1100,6 @@ ggplot(
 ### LINEAR REGRESSION
 
 ```{r}
-mat = getMatrixFromProject(proj6, useMatrix="GeneScoreMatrix2")
-
-# dim(mat) == dim(matsaver)
-# all(colnames(mat) == colnames(matsaver))
-# assay(mat, withDimnames = FALSE) = matsaver
-rownames(matsaver) = NULL
-assay(mat) = log2(matsaver) # NOW LOG2 SCALE !!!
-
-# The smallest value imputed by saver is 0.001
-# Exclude low expression genes
-x = (rowMeans(assay(mat) <= 0.001) < 0.01) # discard 252, keep 16842
-mat = mat[which(x), ]
-
-dimnames(mat)[[1]] = rowData(mat)$name
-x = ! duplicated(dimnames(mat)[[1]])
-mat = mat[which(x), ]
-
-assay(mat) = log2(assay(mat)) # NOW LOG2 SCALE !!!
-
-# # Library size correct (average)
-# assay(mat) = assay(mat) -
-#   matrix(
-#     colMeans(assay(mat)),
-#     nrow = nrow(assay(mat)),
-#     ncol = ncol(assay(mat)),
-#     byrow = TRUE)
-
-# mat = mat[, which(mat$Clusters4BTmyelo == "hepato")]
-
-# Library size correct (qn)
-x = preprocessCore::normalize.quantiles(assay(mat))
-assay(mat, withDimnames = FALSE) = x
-
 # Case 1: Correct for samples; Clusters4res05
 # This is more stringent but possibly less powerful
 # compared to the Bayesian correction by COMBAT.
@@ -1149,18 +1116,6 @@ for (s in sampleLabels) {
 
 # Case 2: Don't correct for samples; Clusters4BTmyelodiet Clusters4BTmyelospdietcombined
 assay(mat) = assay(mat) - rowMeans(assay(mat))
-
-
-# z = svd(assay(mat))
-set.seed(1)
-z = irlba::irlba(assay(mat), nv = 20)
-plot(z$d)
-ggplot(data=as.data.frame(z$v))+
-  geom_point(aes(x=V1,y=V2))+
-  facet_grid(
-    cols=vars(mat$Clusters4BTmyelo),
-    rows=vars(as.character(mat$Sample)))
-batcheffect = as.data.frame(z$v[, 1:2]) # includes cell type diff
 
 
 gname = "Clusters4res05"
