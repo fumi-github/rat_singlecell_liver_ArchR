@@ -660,8 +660,8 @@ Define rownames. Omit duplicates of the same gene
 ```{r}
 dimnames(mat)[[1]] = rowData(mat)$name
 
-x = ! duplicated(dimnames(mat)[[1]])
-mat = mat[which(x), ]
+idx = which(! duplicated(dimnames(mat)[[1]]))
+mat = mat[idx, ]
 ```
 
 Library size correct (qn)
