@@ -1,0 +1,163 @@
+---
+title: "GSEA"
+output: html_notebook
+---
+
+# Load GeneScoreMatrix
+
+```{r}
+proj6 = loadArchRProject("Save-Proj6/")
+mat = readRDS("matGeneScoreSamplebatchcorrected.rds")
+```
+
+# Define gene sets for GSEA
+
+```{r}
+library(msigdbr)
+
+gslistfrombaderlab = function (x) {
+  x = strsplit(x, "\t")
+  gslist = lapply(x, function (x) { x[-c(1:2)] })
+  names(gslist) = unlist(lapply(x, function (x) { x[1] }))
+  return(gslist)
+}
+gslistfrommsigdbr = function (x) {
+  x = x %>%
+    dplyr::mutate(name = paste0(gs_name, "%%", gs_id)) %>%
+    dplyr::select(name, gene_symbol) %>%
+    dplyr::group_by(name) %>%
+    dplyr::summarize(gs = list(gene_symbol))
+  gslist = x$gs
+  names(gslist) = x$name
+  return(gslist)
+}
+
+gslists = list()
+x = readLines("~/human/publicrat/baderlab_EM_Genesets/Rat_Human_NetPath_June_01_2021_symbol.gmt")
+gslists = c(gslists,
+            list(NetPath = gslistfrombaderlab(x)))
+x = readLines("~/human/publicrat/baderlab_EM_Genesets/Rat_Human_Panther_June_01_2021_symbol.gmt")
+gslists = c(gslists,
+            list(Panther = gslistfrombaderlab(x)))
+x = msigdbr(species = "Rattus norvegicus", category = "H")
+gslists = c(gslists,
+            list(H = gslistfrommsigdbr(x)))
+x = msigdbr(species = "Rattus norvegicus", category = "C2", subcategory = "CP:KEGG")
+gslists = c(gslists,
+            list(KEGG = gslistfrommsigdbr(x)))
+x = msigdbr(species = "Rattus norvegicus", category = "C2", subcategory = "CP:PID")
+gslists = c(gslists,
+            list(PID = gslistfrommsigdbr(x)))
+x = msigdbr(species = "Rattus norvegicus", category = "C2", subcategory = "CP:REACTOME")
+gslists = c(gslists,
+            list(REACTOME = gslistfrommsigdbr(x)))
+x = msigdbr(species = "Rattus norvegicus", category = "C2", subcategory = "CP:WIKIPATHWAYS")
+gslists = c(gslists,
+            list(WIKIPATHWAYS = gslistfrommsigdbr(x)))
+x1 = msigdbr(species = "Rattus norvegicus", category = "C3", subcategory = "TFT:GTRD")
+x2 = msigdbr(species = "Rattus norvegicus", category = "C3", subcategory = "TFT:TFT_Legacy")
+gslists = c(gslists,
+            list(TFT = c(gslistfrommsigdbr(x1), gslistfrommsigdbr(x2))))
+x = msigdbr(species = "Rattus norvegicus", category = "C5", subcategory = "GO:BP")
+gslists = c(gslists,
+            list(GOBP = gslistfrommsigdbr(x)))
+rm(x, x1, x2)
+```
+
+# Define conditions to be compared
+
+```{r}
+g = proj6$Sample
+g[g %in% c("m154211", "m167108")] = "sp"
+proj6$spdietcombined = g
+
+proj6$Clusters4BTmyelospdietcombined =
+  paste0(proj6$Clusters4BTmyelo,
+         "_",
+         proj6$spdietcombined)
+```
+
+Compare nuclei of same cell type between different interventions
+Choose tgt vs bgd
+
+```{r}
+gname = "Clusters4BTmyelospdietcombined"
+g = getCellColData(proj6, gname, drop = TRUE)[
+  match(colnames(mat),
+        proj6$cellNames)]
+ClustersLabels = unique(as.character(g))
+
+tgt = "hepato_m154207"; bgd = "hepato_sp"
+tgt = "hepato_m167203"; bgd = "hepato_sp"
+tgt = "hepato_m168101"; bgd = "hepato_sp"
+
+tgt = "stellate_m154207"; bgd = "stellate_sp"
+tgt = "stellate_m167203"; bgd = "stellate_sp"
+tgt = "stellate_m168101"; bgd = "stellate_sp"
+
+tgt = "endothelial_m154207"; bgd = "endothelial_sp"
+tgt = "endothelial_m167203"; bgd = "endothelial_sp"
+tgt = "endothelial_m168101"; bgd = "endothelial_sp"
+
+tgt = "myelo_m154207";  bgd = "myelo_sp"
+tgt = "myelo_m167203";  bgd = "myelo_sp"
+tgt = "myelo_m168101";  bgd = "myelo_sp"
+
+tgt = "B_m154207";  bgd = "B_sp"
+tgt = "B_m167203";  bgd = "B_sp"
+tgt = "B_m168101";  bgd = "B_sp"
+
+tgt = "T_NK_m154207";  bgd = "T_NK_sp"
+tgt = "T_NK_m167203";  bgd = "T_NK_sp"
+tgt = "T_NK_m168101";  bgd = "T_NK_sp"
+```
+
+Compare clusters
+
+```{r}
+gname = "Clusters4res06"
+g = getCellColData(proj6, gname, drop = TRUE)[
+  match(colnames(mat),
+        proj6$cellNames)]
+ClustersLabels = unique(as.character(g))
+ClustersLabels = ClustersLabels[
+  order(as.numeric(sub("^C", "", ClustersLabels)))]
+
+tgt = "C16"; bgd = "C10" # inflammatory vs non-inflammatory macrophage
+tgt =  "C8"; bgd =  "C9" # stellate
+tgt = "C11"; bgd = "C12" # endothelial cell
+```
+
+# Run padog GSEA
+
+```{r}
+esetm = cbind(
+  assay(mat)[, which(g == tgt)],
+  assay(mat)[, which(g == bgd)])
+group = c(rep("d", sum(g == tgt)), rep("c", sum(g == bgd)))
+
+library(PADOG)
+dseed = 1
+result = list()
+for (i in 1:length(gslists)) {
+  print(names(gslists)[i])
+  myr = padog(
+    esetm = esetm,
+    group = group,
+    gslist = gslists[[i]],
+    organism = "rno",
+    Nmin = 5,
+    NI = max(10000, length(gslists[[i]]) * 20),
+    parallel = TRUE,
+    ncr = 16,
+    dseed = dseed)
+  myr$FDRmeanAbsT = p.adjust(myr$PmeanAbsT, method = "BH")
+  myr$FDRpadog    = p.adjust(myr$Ppadog, method = "BH")
+  result = c(result, list(myr))
+}
+names(result) = names(gslists)
+
+saveRDS(result, file = paste0(
+  "padog/",
+  paste0(c(gname, tgt, bgd, dseed, "rds"), collapse = ".")))
+```
