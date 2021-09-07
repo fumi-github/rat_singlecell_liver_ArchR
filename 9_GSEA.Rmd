@@ -369,31 +369,3 @@ dbname ="GOBP"; gsname = "GOBP_INFLAMMATORY_RESPONSE%%M10617"  # mostly up
 dbname ="GOBP"; gsname = "GOBP_CYTOKINE_PRODUCTION%%M13156"
 dbname ="GOBP"; gsname = "GOBP_RESPONSE_TO_WOUNDING%%M5634"  # up&down
 ```
-
-For MotifMatrix
-
-```{r}
-# Motif  size >6
-tgt = "hepato_m154207"; bgd = "hepato_sp"
-tgt = "hepato_m167203"; bgd = "hepato_sp"
-tgt = "hepato_m168101"; bgd = "hepato_sp"
-dbname ="WIKIPATHWAYS"; gsname = "WP_IL2_SIGNALING_PATHWAY%%M39536"  # size 7
-dbname ="WIKIPATHWAYS"; gsname = "WP_IL5_SIGNALING_PATHWAY%%M39392"  # size 8
-dbname ="GOBP"; gsname = "GOBP_RECEPTOR_SIGNALING_PATHWAY_VIA_STAT%%M24785"  # size 11
-
-tgt = "stellate_m154207"; bgd = "stellate_sp"
-tgt = "stellate_m167203"; bgd = "stellate_sp"
-dbname ="H"; gsname = "HALLMARK_TNFA_SIGNALING_VIA_NFKB%%M5890"  # size 39
-tgt = "stellate_m168101"; bgd = "stellate_sp"
-
-tgt = "endothelial_m154207"; bgd = "endothelial_sp"
-tgt = "endothelial_m167203"; bgd = "endothelial_sp"
-dbname ="GOBP"; gsname = "GOBP_RESPONSE_TO_REACTIVE_OXYGEN_SPECIES%%M16953"  # size 12
-tgt = "endothelial_m168101"; bgd = "endothelial_sp"
-
-tgt = "myelo_m154207";  bgd = "myelo_sp"
-tgt = "myelo_m167203";  bgd = "myelo_sp"
-dbname ="REACTOME"; gsname = "REACTOME_SIGNALING_BY_NUCLEAR_RECEPTORS%%M27869"  # size 33
-dbname ="WIKIPATHWAYS"; gsname = "WP_STRUCTURAL_PATHWAY_OF_INTERLEUKIN_1_IL1%%M39543"  # size 7
-tgt = "myelo_m168101";  bgd = "myelo_sp"
-```
