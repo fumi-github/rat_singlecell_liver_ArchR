@@ -207,3 +207,193 @@ output = paste(
   sep = "\t")
 cat(output, file = "foo.gmt", sep = "\n")
 ```
+
+# Result: representative enriched gene sets
+
+```{r}
+gname = "Clusters4BTmyelospdietcombined"
+
+tgt = "hepato_m154207"; bgd = "hepato_sp"
+# dbname ="Panther"; gsname = "CHOLESTEROL BIOSYNTHESIS%PANTHER PATHWAY%P00014"
+# dbname ="H"; gsname = "HALLMARK_XENOBIOTIC_METABOLISM%%M5934"
+# dbname ="H"; gsname = "HALLMARK_BILE_ACID_METABOLISM%%M5948"
+# dbname ="H"; gsname = "HALLMARK_CHOLESTEROL_HOMEOSTASIS%%M5892"
+# dbname ="KEGG"; gsname = "KEGG_PRIMARY_BILE_ACID_BIOSYNTHESIS%%M3214"
+# dbname ="KEGG"; gsname = "KEGG_STEROID_BIOSYNTHESIS%%M5872"
+# dbname ="PID"; gsname = "PID_HNF3B_PATHWAY%%M106"
+# dbname ="PID"; gsname = "PID_IL2_PI3K_PATHWAY%%M143"
+dbname ="REACTOME"; gsname = "REACTOME_METABOLISM_OF_STEROIDS%%M27832"
+dbname ="REACTOME"; gsname = "REACTOME_CHOLINE_CATABOLISM%%M27619"
+# dbname ="REACTOME"; gsname = "REACTOME_BILE_ACID_AND_BILE_SALT_METABOLISM%%M499"
+# dbname ="REACTOME"; gsname = "REACTOME_XENOBIOTICS%%M5372"
+# dbname ="REACTOME"; gsname = "REACTOME_CHOLESTEROL_BIOSYNTHESIS%%M16227"
+# dbname ="REACTOME"; gsname = "REACTOME_FATTY_ACID_METABOLISM%%M27854"
+# dbname ="WIKIPATHWAYS"; gsname = "WP_CHOLESTEROL_BIOSYNTHESIS_PATHWAY%%M39608"
+dbname ="WIKIPATHWAYS"; gsname = "WP_SIGNAL_TRANSDUCTION_THROUGH_IL1R%%M39803"
+dbname ="GOBP"; gsname = "GOBP_ALPHA_AMINO_ACID_METABOLIC_PROCESS%%M10829"
+dbname ="GOBP"; gsname = "GOBP_FATTY_ACID_METABOLIC_PROCESS%%M17829"
+dbname ="GOBP"; gsname = "GOBP_LIPID_LOCALIZATION%%M15749"
+# dbname ="GOBP"; gsname = "GOBP_LIPID_BIOSYNTHETIC_PROCESS%%M14504"
+# dbname ="GOBP"; gsname = "GOBP_CHOLINE_CATABOLIC_PROCESS%%M23533"
+# dbname ="GOBP"; gsname = "GOBP_STEROID_BIOSYNTHETIC_PROCESS%%M13381"
+dbname ="GOBP"; gsname = "GOBP_RESPONSE_TO_DRUG%%M6886"
+# dbname ="GOBP"; gsname = "GOBP_REGULATION_OF_LIPID_LOCALIZATION%%M25391"
+# dbname ="GOBP"; gsname = "GOBP_REGULATION_OF_LIPID_TRANSPORT%%M13620"
+# dbname ="GOBP"; gsname = "GOBP_BILE_ACID_BIOSYNTHETIC_PROCESS%%M12041"
+tgt = "hepato_m167203"; bgd = "hepato_sp"
+# dbname ="NetPath"; gsname = "IL1%NETPATH%IL1"  # up Il1r1 Il1r2 Nfkb1 relevant? NetPath reliable?
+dbname ="Panther"; gsname = "APOPTOSIS SIGNALING PATHWAY%PANTHER PATHWAY%P00006"  # up
+# dbname ="Panther"; gsname = "PLASMINOGEN ACTIVATING CASCADE%PANTHER PATHWAY%P00050"  # up
+dbname ="H"; gsname = "HALLMARK_TNFA_SIGNALING_VIA_NFKB%%M5890"
+# dbname ="H"; gsname = "HALLMARK_IL6_JAK_STAT3_SIGNALING%%M5897"
+# dbname ="PID"; gsname = "PID_IL1_PATHWAY%%M110"
+# dbname ="PID"; gsname = "PID_IL2_PI3K_PATHWAY%%M143"
+dbname ="REACTOME"; gsname = "REACTOME_RESPONSE_TO_METAL_IONS%%M27541"
+# dbname ="REACTOME"; gsname = "REACTOME_INTERLEUKIN_10_SIGNALING%%M27605"
+dbname ="REACTOME"; gsname = "REACTOME_INTERLEUKIN_1_SIGNALING%%M27895"
+# dbname ="REACTOME"; gsname = "REACTOME_CYTOKINE_SIGNALING_IN_IMMUNE_SYSTEM%%M1060"
+# dbname ="REACTOME"; gsname = "REACTOME_SIGNALING_BY_INTERLEUKINS%%M874"
+# dbname ="REACTOME"; gsname = "REACTOME_CYP2E1_REACTIONS%%M27130"
+# dbname ="REACTOME"; gsname = "REACTOME_XENOBIOTICS%%M5372"
+# dbname ="REACTOME"; gsname = "REACTOME_BILE_ACID_AND_BILE_SALT_METABOLISM%%M499"
+dbname ="REACTOME"; gsname = "REACTOME_INFLAMMASOMES%%M1072"
+# dbname ="WIKIPATHWAYS"; gsname = "WP_NUCLEAR_RECEPTORS_IN_LIPID_METABOLISM_AND_TOXICITY%%M39488"
+dbname ="WIKIPATHWAYS"; gsname = "WP_SIGNAL_TRANSDUCTION_THROUGH_IL1R%%M39803"
+# dbname ="TFT"; gsname = "NFKB_C%%M12240"
+dbname ="GOBP"; gsname = "GOBP_CYTOKINE_PRODUCTION%%M13156"
+dbname ="GOBP"; gsname = "GOBP_REGULATION_OF_CELL_CELL_ADHESION%%M6401"
+# dbname ="GOBP"; gsname = "GOBP_CYTOKINE_MEDIATED_SIGNALING_PATHWAY%%M898"  # up
+dbname ="GOBP"; gsname = "GOBP_INFLAMMATORY_RESPONSE%%M10617"
+# dbname ="GOBP"; gsname = "GOBP_REGULATION_OF_CELL_ADHESION%%M8154"
+dbname ="GOBP"; gsname = "GOBP_RESPONSE_TO_LIPID%%M14037"  # up&down
+dbname ="GOBP"; gsname = "GOBP_RESPONSE_TO_DRUG%%M6886"
+# dbname ="GOBP"; gsname = "GOBP_REGULATION_OF_INTERLEUKIN_1_MEDIATED_SIGNALING_PATHWAY%%M25511"
+# dbname ="GOBP"; gsname = "GOBP_REGULATION_OF_LIPID_LOCALIZATION%%M25391"  # up&down
+dbname ="GOBP"; gsname = "GOBP_RESPONSE_TO_CYTOKINE%%M15783"
+dbname ="GOBP"; gsname = "GOBP_LIPID_LOCALIZATION%%M15749"
+tgt = "hepato_m168101"; bgd = "hepato_sp"
+# none
+
+tgt = "stellate_m154207"; bgd = "stellate_sp"
+# dbname ="KEGG"; gsname = "KEGG_LYSINE_DEGRADATION%%M13720"
+# dbname ="KEGG"; gsname = "KEGG_STEROID_BIOSYNTHESIS%%M5872"   # rno00100 down
+# dbname ="KEGG"; gsname = "KEGG_TERPENOID_BACKBONE_BIOSYNTHESIS%%M13465"
+dbname ="REACTOME"; gsname = "REACTOME_CHOLESTEROL_BIOSYNTHESIS%%M16227"
+# dbname ="WIKIPATHWAYS"; gsname = "WP_CHOLESTEROL_BIOSYNTHESIS_PATHWAY%%M39608"
+tgt = "stellate_m167203"; bgd = "stellate_sp"
+dbname ="GOBP"; gsname = "GOBP_ACTIN_FILAMENT_BASED_PROCESS%%M9082"  #up&down
+dbname ="GOBP"; gsname = "GOBP_CELL_MIGRATION%%M40389"  #up&down
+# dbname ="GOBP"; gsname = "GOBP_REGULATION_OF_CELLULAR_COMPONENT_MOVEMENT%%M15511"
+# dbname ="GOBP"; gsname = "GOBP_ENDOTHELIAL_CELL_FATE_COMMITMENT%%M24225"
+# dbname ="GOBP"; gsname = "GOBP_EPITHELIAL_CELL_FATE_COMMITMENT%%M16390"  # up&down
+tgt = "stellate_m168101"; bgd = "stellate_sp"
+# none
+
+tgt = "endothelial_m154207"; bgd = "endothelial_sp"
+dbname ="NetPath"; gsname = "IL2%NETPATH%IL2"
+# dbname ="NetPath"; gsname = "IL4%NETPATH%IL4"
+tgt = "endothelial_m167203"; bgd = "endothelial_sp"
+# dbname ="NetPath"; gsname = "WNT%NETPATH%WNT"
+# dbname ="NetPath"; gsname = "ALPHA6BETA4INTEGRIN%NETPATH%ALPHA6BETA4INTEGRIN"
+dbname ="GOBP"; gsname = "GOBP_STEROID_METABOLIC_PROCESS%%M16758"  # down
+tgt = "endothelial_m168101"; bgd = "endothelial_sp"
+# none
+
+tgt = "myelo_m154207";  bgd = "myelo_sp"
+# dbname ="REACTOME"; gsname = "REACTOME_COMPLEMENT_CASCADE%%M19752"  # 0.04894015 irrelevant?
+# dbname ="GOBP"; gsname = "GOBP_ALPHA_BETA_T_CELL_DIFFERENTIATION%%M10942"  # irrelevant?
+dbname ="GOBP"; gsname = "GOBP_REGULATION_OF_IMMUNE_SYSTEM_PROCESS%%M5017"
+tgt = "myelo_m167203";  bgd = "myelo_sp"
+dbname ="GOBP"; gsname = "GOBP_CELLULAR_LIPID_METABOLIC_PROCESS%%M14398"  # up&down
+tgt = "myelo_m168101";  bgd = "myelo_sp"
+# none
+
+tgt = "B_m154207";  bgd = "B_sp"
+# none
+tgt = "B_m167203";  bgd = "B_sp"
+# none
+tgt = "B_m168101";  bgd = "B_sp"
+# none
+
+tgt = "T_NK_m154207";  bgd = "T_NK_sp"
+dbname ="GOBP"; gsname = "GOBP_FATTY_ACID_METABOLIC_PROCESS%%M17829"
+dbname ="H"; gsname = "HALLMARK_XENOBIOTIC_METABOLISM%%M5934"
+tgt = "T_NK_m167203";  bgd = "T_NK_sp"
+dbname ="GOBP"; gsname = "GOBP_STEROID_METABOLIC_PROCESS%%M16758"
+dbname ="GOBP"; gsname = "GOBP_ORGANIC_ACID_METABOLIC_PROCESS%%M14117"
+dbname ="GOBP"; gsname = "GOBP_RESPONSE_TO_DRUG%%M6886"
+tgt = "T_NK_m168101";  bgd = "T_NK_sp"
+# none
+```
+
+Not significant but important
+
+```{r}
+dbname ="WIKIPATHWAYS"; gsname = "WP_NONALCOHOLIC_FATTY_LIVER_DISEASE%%M39806"
+#
+dbname ="KEGG"; gsname = "KEGG_CYTOKINE_CYTOKINE_RECEPTOR_INTERACTION%%M9809"
+#
+dbname ="REACTOME"; gsname = "REACTOME_EXTRACELLULAR_MATRIX_ORGANIZATION%%M610"
+dbname ="GOBP"; gsname = "GOBP_CONNECTIVE_TISSUE_REPLACEMENT%%M24786"
+#
+dbname ="KEGG"; gsname = "KEGG_TGF_BETA_SIGNALING_PATHWAY%%M2642"  # rno04350
+dbname ="WIKIPATHWAYS"; gsname = "WP_TGFBETA_SIGNALING_PATHWAY%%M39432"
+dbname ="Panther"; gsname = "TGF-BETA SIGNALING PATHWAY%PANTHER PATHWAY%P00052"
+#
+dbname ="WIKIPATHWAYS"; gsname = "WP_FERROPTOSIS%%M39768"
+dbname ="REACTOME"; gsname = "REACTOME_PYROPTOSIS%%M41804"  # FDR >0.9
+dbname ="REACTOME"; gsname = "REACTOME_INTRINSIC_PATHWAY_FOR_APOPTOSIS%%M7455"  # FDR >0.8
+dbname ="REACTOME"; gsname = "REACTOME_SUPPRESSION_OF_APOPTOSIS%%M29815"  # FDR >0.7
+dbname ="KEGG"; gsname = "KEGG_APOPTOSIS%%M8492"  # rno04210 FDR >0.5
+dbname ="GOBP"; gsname = "GOBP_APOPTOTIC_PROCESS%%M34075"
+```
+
+```{r}
+gname = "Clusters4res05"
+
+tgt = "C9";  bgd = "C8"
+dbname ="GOBP"; gsname = "GOBP_CELL_MIGRATION%%M40389"
+dbname ="GOBP"; gsname = "GOBP_CELL_CELL_ADHESION%%M12087"
+dbname ="GOBP"; gsname = "GOBP_RESPONSE_TO_WOUNDING%%M5634"  # up&down
+dbname ="GOBP"; gsname = "GOBP_LEUKOCYTE_CELL_CELL_ADHESION%%M14645"
+dbname ="GOBP"; gsname = "GOBP_LEUKOCYTE_MIGRATION%%M12269"  # up&down
+tgt = "C14";  bgd = "C13"
+dbname ="H"; gsname = "HALLMARK_TNFA_SIGNALING_VIA_NFKB%%M5890"  # up&down
+dbname ="KEGG"; gsname = "KEGG_CYTOKINE_CYTOKINE_RECEPTOR_INTERACTION%%M9809"  # mostly up
+dbname ="KEGG"; gsname = "KEGG_LEUKOCYTE_TRANSENDOTHELIAL_MIGRATION%%M2164"  # up&down
+dbname ="GOBP"; gsname = "GOBP_CELL_MIGRATION%%M40389"
+dbname ="GOBP"; gsname = "GOBP_REGULATION_OF_CELL_ADHESION%%M8154"
+dbname ="GOBP"; gsname = "GOBP_BLOOD_VESSEL_MORPHOGENESIS%%M13415"  # up&down
+dbname ="GOBP"; gsname = "GOBP_POSITIVE_REGULATION_OF_REACTIVE_OXYGEN_SPECIES_METABOLIC_PROCESS%%M13580"  # up&down
+dbname ="GOBP"; gsname = "GOBP_INFLAMMATORY_RESPONSE%%M10617"  # mostly up
+dbname ="GOBP"; gsname = "GOBP_CYTOKINE_PRODUCTION%%M13156"
+dbname ="GOBP"; gsname = "GOBP_RESPONSE_TO_WOUNDING%%M5634"  # up&down
+```
+
+For MotifMatrix
+
+```{r}
+# Motif  size >6
+tgt = "hepato_m154207"; bgd = "hepato_sp"
+tgt = "hepato_m167203"; bgd = "hepato_sp"
+tgt = "hepato_m168101"; bgd = "hepato_sp"
+dbname ="WIKIPATHWAYS"; gsname = "WP_IL2_SIGNALING_PATHWAY%%M39536"  # size 7
+dbname ="WIKIPATHWAYS"; gsname = "WP_IL5_SIGNALING_PATHWAY%%M39392"  # size 8
+dbname ="GOBP"; gsname = "GOBP_RECEPTOR_SIGNALING_PATHWAY_VIA_STAT%%M24785"  # size 11
+
+tgt = "stellate_m154207"; bgd = "stellate_sp"
+tgt = "stellate_m167203"; bgd = "stellate_sp"
+dbname ="H"; gsname = "HALLMARK_TNFA_SIGNALING_VIA_NFKB%%M5890"  # size 39
+tgt = "stellate_m168101"; bgd = "stellate_sp"
+
+tgt = "endothelial_m154207"; bgd = "endothelial_sp"
+tgt = "endothelial_m167203"; bgd = "endothelial_sp"
+dbname ="GOBP"; gsname = "GOBP_RESPONSE_TO_REACTIVE_OXYGEN_SPECIES%%M16953"  # size 12
+tgt = "endothelial_m168101"; bgd = "endothelial_sp"
+
+tgt = "myelo_m154207";  bgd = "myelo_sp"
+tgt = "myelo_m167203";  bgd = "myelo_sp"
+dbname ="REACTOME"; gsname = "REACTOME_SIGNALING_BY_NUCLEAR_RECEPTORS%%M27869"  # size 33
+dbname ="WIKIPATHWAYS"; gsname = "WP_STRUCTURAL_PATHWAY_OF_INTERLEUKIN_1_IL1%%M39543"  # size 7
+tgt = "myelo_m168101";  bgd = "myelo_sp"
+```
