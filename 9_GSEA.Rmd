@@ -161,3 +161,49 @@ saveRDS(result, file = paste0(
   "padog/",
   paste0(c(gname, tgt, bgd, dseed, "rds"), collapse = ".")))
 ```
+
+# Inspect enriched gene sets
+
+When there are too many gene sets attaining FDRpadog < 0.05,
+visualize and choose representatives by using Cytoscape:
+1. Apps > EnrichmentMap. Load GMT file `foo.gmt`
+2. Node Table. Load `foo.txt` and add column log10Ppadog
+2. Style > Fill color. Column = log10Ppadog. Mapping Type = Continuous Mapping
+3. Layout > yFiles Radial Layout
+
+As above, define `gname`, `tgt`, `bgd`.
+Generate files to be loaded to Cytoscape.
+
+```{r}
+dseed = 1
+padog =
+  readRDS(paste0(
+    "padog/",
+    # "padog.GeneScore/",
+    # "padog.Motif/",
+    paste0(c(gname, tgt, bgd, dseed, "rds"), collapse = ".")))
+
+x = padog[c(1:7, 9)]
+x = do.call(rbind, x)
+padogFDR005 = x[x$FDRpadog < 0.05, ]
+padogFDR005$log10Ppadog = log10(padogFDR005$Ppadog)
+write.table(
+  padogFDR005[, c("Name", "log10Ppadog")],
+  file = "foo.txt",
+  row.names = FALSE,
+  col.names = TRUE,
+  sep = "\t",
+  quote = FALSE)
+
+output = do.call(c, gslists)
+output = output[rownames(padogFDR005)]
+output = lapply(output, function (x) { paste0(x, collapse = "\t") })
+x = names(output)
+x = sub("[^.]*\\.", "", x, perl = TRUE)
+output = paste(
+  x,
+  sub("%.*", "", x),
+  unlist(output),
+  sep = "\t")
+cat(output, file = "foo.gmt", sep = "\n")
+```
