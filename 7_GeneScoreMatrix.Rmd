@@ -778,4 +778,3 @@ resultcompared$celltype =
   factor(resultcompared$celltype,
          levels = c("hepato", "stellate", "endothelial", "myelo", "B", "T_NK"))
 ```
-
