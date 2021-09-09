@@ -208,6 +208,38 @@ output = paste(
 cat(output, file = "foo.gmt", sep = "\n")
 ```
 
+# Summarize results across tgt/bgd combinations
+
+For all comparisons under `gname = "Clusters4BTmyelospdietcombined"`,
+summarize the results for a given geneset `gsname` in databaset `dbname`.
+
+```{r}
+do.call(
+  rbind,
+  lapply(
+    c("hepato", "stellate", "endothelial", "myelo", "T_NK"),
+    function (celltype) {
+      do.call(
+        rbind,
+        lapply(
+          c("m154207", "m167203", "m168101"),
+          function (s) {
+            tgt = paste0(celltype, "_", s)
+            bgd = paste0(celltype, "_sp")
+            x =
+              readRDS(paste0("padog/", paste0(c(gname, tgt, bgd, dseed, "rds"), collapse = ".")))
+            x = x[[dbname]][gsname, ]
+            x$celltype = celltype
+            x$sample = s
+            x$score =
+              3 * (x$FDRpadog <  0.05) +
+              2 * (x$FDRpadog >= 0.05 & x$Ppadog <  0.01) +
+              1 * (x$FDRpadog >= 0.05 & x$Ppadog >= 0.01 & x$Ppadog < 0.05)
+            return(x)
+          }))
+    }))
+```
+
 # Result: representative enriched gene sets
 
 ```{r}
