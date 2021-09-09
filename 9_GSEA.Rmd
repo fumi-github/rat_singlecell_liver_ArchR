@@ -240,6 +240,32 @@ do.call(
     }))
 ```
 
+Barcode plot
+Beforehand, compute `resultcompared` in 7_GeneScoreMatrix.Rmd
+
+```{r}
+gs = gslists[[dbname]][[gsname]]
+pdf("foo.pdf", width = 10, height = 10)
+par(mfrow = c(5, 3), mai = rep(0.25, 4))
+for (celltype in c("hepato", "stellate", "endothelial", "myelo", "T_NK")) {
+  for (s in c("m154207", "m167203", "m168101")) {
+    tgt = paste0(celltype, "_", s)
+    bgd = paste0(celltype, "_sp")
+    print(c(tgt, bgd))
+    dataplot = resultcompared[
+      (resultcompared$tgt == tgt &
+         resultcompared$bgd == bgd), ]
+    dataplot$geneset = dataplot$genename %in% gs
+    limma::barcodeplot(
+      dataplot$statistic,
+      dataplot$geneset,
+      labels = c(bgd, tgt),
+      quantiles = c(-1,1) * qnorm(0.025, lower.tail = FALSE))
+  }
+}
+dev.off()
+```
+
 # Result: representative enriched gene sets
 
 ```{r}
