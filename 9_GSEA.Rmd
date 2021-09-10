@@ -168,8 +168,9 @@ When there are too many gene sets attaining FDRpadog < 0.05,
 visualize and choose representatives by using Cytoscape:
 1. Apps > EnrichmentMap. Import GMT file `foo.gmt`
 2. Node Table. Import `foo.txt` and add column log10Ppadog
-2. Style > Fill Color > Map. Column = log10Ppadog. Mapping Type = Continuous Mapping
-3. Layout > yFiles Radial Layout
+3. Style > Fill Color > Map. Column = log10Ppadog. Mapping Type = Continuous Mapping
+4. [Optional] Apps > clusterMaker > MCODE Cluster. Create new clustered network
+5. Layout > yFiles Radial Layout
 
 As above, define `gname`, `tgt`, `bgd`.
 Generate files to be loaded to Cytoscape.
