@@ -363,7 +363,7 @@ colfunc = colorRampPalette(c("blue", "white", "red"))
 heatmap.2(
   plotdata,
   Colv = NA,
-  Rowv = as.dendrogram(hclust(as.dist(1 - cor(t(plotdata))), method = "average")),
+  Rowv = as.dendrogram(hclust(as.dist(1 - cor(t(plotdata))), method = "ward.D2")),
   dendrogram = "row",
   scale = "none",
   col = colfunc(256),
@@ -381,7 +381,7 @@ colfunc = colorRampPalette(c("white", "black"))
 heatmap.2(
   topgenesbytargetdbgs,
   Colv = NA,
-  Rowv = as.dendrogram(hclust(as.dist(1 - cor(t(plotdata))), method = "average")),
+  Rowv = as.dendrogram(hclust(as.dist(1 - cor(t(plotdata))), method = "ward.D2")),
   dendrogram = "none",
   scale = "none",
   col = colfunc(2),
