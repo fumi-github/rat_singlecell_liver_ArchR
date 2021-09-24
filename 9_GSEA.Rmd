@@ -291,7 +291,7 @@ dev.off()
 
 # Inspection of individual up & down regulated genes in pathway
 
-Define `dbname`, `gsname`, `tgt`, `bgd`.
+Uses `dbname`, `gsname`, `tgt`, `bgd`.
 
 ```{r}
 gs = gslists[[dbname]][[gsname]]
