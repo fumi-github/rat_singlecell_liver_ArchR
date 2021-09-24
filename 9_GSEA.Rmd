@@ -209,6 +209,28 @@ output = paste(
 cat(output, file = "foo.gmt", sep = "\n")
 ```
 
+Generate files to be loaded to Revigo.
+Revigo clusters GO terms. It doesn't handle gene sets from other sources.
+Uses `padog` defined in previous chunk.
+
+```{r}
+x = padog$GOBP
+padogFDR005 = x[x$FDRpadog < 0.05, ]
+padogFDR005$gs_id = sub(".*%%", "", padogFDR005$Name)
+x = msigdbr(species = "Rattus norvegicus", category = "C5", subcategory = "GO:BP")
+padogFDR005$gs_exact_source =
+  x$gs_exact_source[
+    match(padogFDR005$gs_id,
+          x$gs_id)]
+write.table(
+  padogFDR005[, c("gs_exact_source", "Ppadog")],
+  file = "foo.txt",
+  row.names = FALSE,
+  col.names = FALSE,
+  sep = "\t",
+  quote = FALSE)
+```
+
 # Summarize results across tgt/bgd combinations
 
 For all comparisons under `gname = "Clusters4BTmyelospdietcombined"`,
