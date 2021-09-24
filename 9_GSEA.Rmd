@@ -309,6 +309,34 @@ https://www.kegg.jp/kegg/tool/conv_id.html
 KEGG Mapper – Color Pathway
 https://www.genome.jp/kegg/tool/map_pathway3.html
 
+# Volcano plot
+
+Uses `gs`.
+
+```{r}
+plotdata = resultcompared %>%
+  filter(genename %in% gs)
+plotdata$log10p = log10(plotdata$p)
+x = is.infinite(plotdata$log10p)
+plotdata$log10p[x] = min(plotdata$log10p[! x])
+
+fig = ggplot(data = plotdata) +
+  geom_point(
+    aes(x = estimate,
+        y = - log10p,
+        col = FDR < 0.01),
+    size = 0.3) +
+  facet_grid(
+    rows = vars(celltype),
+    cols = vars(sample),
+    scales = "free_y") +
+  scale_color_manual(values = c("black", "red")) +
+  labs(
+    x = "log2(Fold change)",
+    y = "-log10(P)")
+ggsave("foo.pdf", fig, width = 6, height = 8)
+```
+
 # Result: representative enriched gene sets
 
 ```{r}
