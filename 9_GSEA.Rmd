@@ -337,6 +337,62 @@ fig = ggplot(data = plotdata) +
 ggsave("foo.pdf", fig, width = 6, height = 8)
 ```
 
+# Heatmap plot of top genes
+
+Uses `topgenes`, `topgenesbytargetdbgs`.
+
+```{r}
+plotdata = resultcompared %>%
+  filter(genename %in% topgenes) %>%
+  filter(celltype != "B")
+plotdata$estimate[plotdata$FDR >= 0.01] = 0
+plotdata = as.data.frame(
+  tidyr::pivot_wider(
+    plotdata[, c("genename", "estimate", "tgt")],
+    names_from = tgt,
+    values_from = estimate))
+row.names(plotdata) = plotdata[, 1]
+plotdata = plotdata[, -1]
+plotdata = as.matrix(plotdata)
+plotdata = plotdata[match(topgenes, row.names(plotdata)), ]
+
+library(gplots)
+
+pdf(file = "heatmap.pdf", width = 6, height = 8)
+colfunc = colorRampPalette(c("blue", "white", "red"))
+heatmap.2(
+  plotdata,
+  Colv = NA,
+  Rowv = as.dendrogram(hclust(as.dist(1 - cor(t(plotdata))), method = "average")),
+  dendrogram = "row",
+  scale = "none",
+  col = colfunc(256),
+  colsep = seq(0, ncol(plotdata), 3),
+  rowsep = c(0, nrow(plotdata)),
+  sepcolor = "Gray",
+  cexCol = 0.5,
+  trace = "none",
+  density.info = "none",
+  key.title = NA,
+  key.xlab = "log2(Fold change)")
+dev.off()
+
+colfunc = colorRampPalette(c("white", "black"))
+heatmap.2(
+  topgenesbytargetdbgs,
+  Colv = NA,
+  Rowv = as.dendrogram(hclust(as.dist(1 - cor(t(plotdata))), method = "average")),
+  dendrogram = "none",
+  scale = "none",
+  col = colfunc(2),
+  colsep = c(0, ncol(topgenesbytargetdbgs)),
+  rowsep = c(0, nrow(topgenesbytargetdbgs)),
+  sepcolor = "Gray",
+  cexCol = 0.75,
+  trace = "none",
+  density.info = "none")
+```
+
 # Result: representative enriched gene sets
 
 ```{r}
