@@ -108,3 +108,73 @@ assay(mat) = assay(mat) -
 ```{r}
 saveRDS(mat, file = "matMotifSamplebatchcorrected.rds")
 ```
+
+# Compare between conditions
+
+```{r}
+proj6 = loadArchRProject("Save-Proj6/")
+mat = readRDS("matMotifSamplebatchcorrected.rds")
+```
+
+```{r}
+g = proj6$Sample
+g[g %in% c("m154211", "m167108")] = "sp"
+proj6$spdietcombined = g
+
+proj6$Clusters4BTmyelospdietcombined =
+  paste0(proj6$Clusters4BTmyelo,
+         "_",
+         proj6$spdietcombined)
+```
+
+```{r}
+gname = "Clusters4BTmyelospdietcombined"
+g = getCellColData(proj6, gname, drop = TRUE)[
+  match(colnames(mat),
+        proj6$cellNames)]
+
+resultcompared =
+  do.call(
+    rbind,
+    lapply(
+      c("hepato", "stellate", "endothelial", "myelo", "B", "T_NK"),
+      function (celltype) {
+        do.call(
+          rbind,
+          lapply(
+            c("m154207", "m167203", "m168101"),
+            function (s) {
+              tgt = paste0(celltype, "_", s)
+              bgd = paste0(celltype, "_sp")
+              print(c(tgt, bgd))
+              
+              cond = rep(NA, ncol(mat))
+              cond[g == tgt] = 1
+              cond[g == bgd] = 0
+              resulttgtbgd = broom::tidy(
+                lm(y ~ x,
+                   data = list(
+                     y = t(assay(mat)),
+                     x = cond)))
+              resulttgtbgd = resulttgtbgd[resulttgtbgd$term == "x", ]
+              colnames(resulttgtbgd)[colnames(resulttgtbgd) == "p.value"] = "p"
+              resulttgtbgd$FDR = p.adjust(resulttgtbgd$p, method = "BH")
+              colnames(resulttgtbgd)[colnames(resulttgtbgd) == "response"] = "genename"
+              resulttgtbgd$ENTREZID =
+                AnnotationDbi::mapIds(
+                  org.Rn.eg.db,
+                  keys = resulttgtbgd$genename,
+                  column = "ENTREZID",
+                  keytype = "SYMBOL",
+                  multiVals = "first")
+              resulttgtbgd$celltype = celltype
+              resulttgtbgd$sample = s
+              resulttgtbgd$tgt = tgt
+              resulttgtbgd$bgd = bgd
+              return(resulttgtbgd)
+            }))
+      }))
+resultcompared$celltype =
+  factor(resultcompared$celltype,
+         levels = c("hepato", "stellate", "endothelial", "myelo", "B", "T_NK"))
+```
