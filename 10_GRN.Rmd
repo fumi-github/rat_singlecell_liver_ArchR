@@ -1,0 +1,97 @@
+---
+title: "GRN"
+output: html_notebook
+---
+
+# Preprocess
+
+Target cell type
+
+```{r}
+tgtct = "hepato"
+```
+
+Load `mat` from `7_GeneScoreMatrix.Rmd` and rename to `matGene`.
+Load `mat` from `8_MotifMatrix.Rmd` and rename to `matMotif`.
+
+```{r}
+identical(colnames(matMotif), colnames(matGene))
+```
+
+Since highly correlated genes/motifs could be problematic in downstream analysis,
+unify those to a representative.
+
+```{r}
+mat = matGene[, which(matGene$Clusters4BTmyelo == tgtct)]
+# mat = matMotif[, which(matMotif$Clusters4BTmyelo == tgtct)]
+
+matcor = cor(t(assay(mat)), method = "spearman") # takes an hour for matGene
+
+diag(matcor) = 0
+quantile(rowMaxs(abs(matcor)), seq(0, 1, 0.01))
+quantile(rowMaxs(abs(matcor)), seq(0.99, 1, 0.001))
+matcor[abs(matcor) < 0.9] = 0
+
+# Are there negative correlation?
+min(matcor)
+matcor = abs(matcor)
+
+# omit unique genes/motifs
+index = which(rowSums(matcor) > 0)
+identical(index, which(colSums(matcor) > 0))
+matcor = matcor[index, index]
+
+library(igraph)
+x = as.character()
+for (j in 1:ncol(matcor)) {
+  connected = matcor[, j]
+  connected = connected[connected > 0]
+  x = c(x,
+        as.character(
+          rbind(
+            names(connected),
+            colnames(matcor)[j])))
+}
+matcorgraph = graph(edges = x, directed = FALSE)
+matcorgraphcomp = igraph::components(matcorgraph, mode = "weak")
+
+redundant = list()
+for (i in unique(matcorgraphcomp$membership)) {
+  m = names(matcorgraphcomp$membership)[matcorgraphcomp$membership == i]
+  m = names(sort(rowSums(matcor[m, ]), decreasing = TRUE))
+  # the largest is kept (and stored as name), and the others are redundant
+  x = list(m[-1])
+  names(x) = m[1]
+  redundant = c(redundant, x)
+}
+
+# non-redundant
+index = which(! rownames(mat) %in% unlist(redundant))
+matnr = mat[index, ]
+
+redundantGene = redundant
+matnrGene = matnr
+rownames(matnrGene) = paste0("Gene.", rownames(matnrGene))
+# redundantMotif = redundant
+# matnrMotif = matnr
+# rownames(matnrMotif) = paste0("Motif.", rownames(matnrMotif))
+
+# saveRDS(redundantGene,  file = paste0("redundantGene.",  tgtct, ".rds"))
+# saveRDS(matnrGene,      file = paste0("matnrGene.",      tgtct, ".rds"))
+# saveRDS(redundantMotif, file = paste0("redundantMotif.", tgtct, ".rds"))
+# saveRDS(matnrMotif,     file = paste0("matnrMotif.",     tgtct, ".rds"))
+```
+
+GRN
+
+```{r}
+library(GENIE3)
+weightMatrix = GENIE3(
+  rbind(assay(matnrGene), assay(matnrMotif)),
+  regulators = rownames(matnrMotif),
+  targets = rownames(matnrGene),
+  nTrees = 100,
+  nCores = 20,
+  verbose = TRUE)
+```
+
