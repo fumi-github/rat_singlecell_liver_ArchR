@@ -81,18 +81,469 @@ rownames(matnrGene) = paste0("Gene.", rownames(matnrGene))
 # saveRDS(matnrGene,      file = paste0("matnrGene.",      tgtct, ".rds"))
 # saveRDS(redundantMotif, file = paste0("redundantMotif.", tgtct, ".rds"))
 # saveRDS(matnrMotif,     file = paste0("matnrMotif.",     tgtct, ".rds"))
+redundantGene  = readRDS(paste0("redundantGene.",  tgtct, ".rds"))
+matnrGene      = readRDS(paste0("matnrGene.",      tgtct, ".rds"))
+redundantMotif = readRDS(paste0("redundantMotif.", tgtct, ".rds"))
+matnrMotif     = readRDS(paste0("matnrMotif.",     tgtct, ".rds"))
 ```
 
-GRN
+Inspect.
+
+```{r}
+ggplot(data = data.frame(
+  x = assay(matnrGene)["Gene.Il1r1", ],
+  y = assay(matnrMotif)["Motif.Nfkb1", ],
+  s = as.character(matnrGene$Sample)),
+  aes(x, y)) +
+  geom_point(size = 0.5) +
+  facet_grid(cols = vars(s))
+```
+
+Filter differentially expressed genes/motifs.
+Beforehand,
+load `resultcompared` from `7_GeneScoreMatrix.Rmd` and rename to `resultcomparedGene`.
+Load `resultcompared` from `8_MotifMatrix.Rmd` and rename to `resultcomparedMotif`.
+For robustness, we impose abs(estimate) > log2(1.1), which is arbitrary (especially for Motif).
+
+```{r}
+x = resultcomparedGene %>%
+  dplyr::filter(abs(estimate) > log2(1.1) & FDR < 0.01 & celltype == tgtct) %>%
+  dplyr::distinct(genename) %>%
+  dplyr::pull(genename)
+matnrDEGene = matnrGene[which(rownames(matnrGene) %in% paste0("Gene.", x)), ]
+
+x = resultcomparedMotif %>%
+  dplyr::filter(abs(estimate) > log2(1.1) & FDR < 0.01 & celltype == tgtct) %>%
+  dplyr::distinct(genename) %>%
+  dplyr::pull(genename)
+matnrDEMotif = matnrMotif[which(rownames(matnrMotif) %in% paste0("Motif.", x)), ]
+```
+
+# One motif-to-one gene analysis
+
+## Correlation between motifs and genes
+
+```{r}
+corMG = cor(
+  t(assay(matnrMotif)),
+  t(assay(matnrGene)),
+  method = "spearman")
+
+cornulldistribution =
+  sapply(
+    1:100,
+    function (i) {
+      print(i)
+      set.seed(i)
+      corMGsim = cor(
+        t(assay(matnrMotif))[sample(ncol(matnrMotif)), ],
+        t(assay(matnrGene)),
+        method = "spearman")
+      sapply(0:1000, function (x) { sum(abs(corMGsim) > x/1000) })
+    })
+max(which(
+  rowMeans(cornulldistribution) /
+    sapply(0:1000, function (x) { sum(abs(corMG) > x/1000) }) >= 0.01)) / 1000
+# FDR<0.01
+# hepatocyte >=0.035
+# T_NK       >=0.161 (all samples; qn) OLD
+mean(sort(
+  apply(
+    cornulldistribution,
+    2,
+    function (x) { (max(which(x > 0)) - 1)/1000 }),
+  decreasing = TRUE)[5:6])
+# globalP=0.05
+# hepatocyte 0.062
+# T_NK       0.281  (all samples; qn) OLD
+
+# Keep only FDR<0.01
+corMGsig = corMG
+corMGsig[abs(corMGsig) < 0.035] = 0
+```
+
+Filter differentially expressed genes/motifs.
+
+```{r}
+all(rownames(matnrDEMotif) %in% rownames(corMGsig))
+all(rownames(matnrDEGene)  %in% colnames(corMGsig))
+corMGsigsig = corMGsig
+corMGsigsig = corMGsigsig[rownames(matnrDEMotif), ]
+corMGsigsig = corMGsigsig[, rownames(matnrDEGene)]
+plot(quantile(abs(corMGsigsig), seq(0, 1, 0.01)))
+```
+
+## SVD of corMGsigsig
+
+For hepato, 7 components look significant.
+Component 1 is characterized by Motif.Fos, Motif.Smarcc1, Motif.Bach1.
+Other components are not evident.
+
+```{r}
+x = svd(corMGsigsig)
+plot(x$d)
+dataplot =
+  as.data.frame(x$u); rownames(dataplot) = rownames(corMGsigsig)
+  # as.data.frame(x$v); rownames(dataplot) = colnames(corMGsigsig)
+ggplot(data = dataplot,
+       aes(x = V1,
+           y = V2)) +
+  geom_point(size = 0.5)
+
+tail(sort(as.matrix(dataplot)[, 1]), 20)
+```
+
+## Graph of corMGsigsig
+
+```{r}
+library(igraph)
+
+x = as.character()
+for (j in 1:ncol(corMGsigsig)) {
+  connected = corMGsigsig[, j]
+  connected = connected[abs(connected) > 0]
+  if (length(connected) > 0) {
+    connected = connected[head(order(abs(connected), decreasing = TRUE), 5)]
+    x = c(x,
+          as.character(
+            rbind(
+              names(connected),
+              colnames(corMGsigsig)[j])
+          ))
+  }
+}
+corMGsigsiggraph = graph(edges = x, directed = TRUE)
+corMGsigsiggraphcomp = igraph::components(corMGsigsiggraph, mode = "weak")
+corMGsigsiggraphcomp$csize
+head(sort(degree(corMGsigsiggraph), decreasing = TRUE))
+```
+
+## Detect mediator motifs by conditional analysis
+
+We are interested if the effect of condition (ie diet) on Gene j
+is mediated by Motif i.
+We want to detect the information flow (causality) "condition -> Motif i -> Gene j".
+It doesn't matter whether there is bypass "condition -> Gene j".
+We test if the association of Gene j with condition decreases
+when conditioned by Motif i.
+
+```{r}
+x = matnrDEMotif
+y = matnrDEGene
+g = x$Sample
+g[g %in% c("m154211", "m167108")] = "sp"
+x$spdietcombined = g
+```
+
+Compute the regression
+condition ~ (Motif i) + (Gene j),
+and keep the t-statistic for (Gene j).
+For a fixed j, which i yields diminished t-statistic?
+
+```{r}
+cl = makeCluster(20)
+clusterExport(cl, "assay")
+clusterExport(cl, "x")
+clusterExport(cl, "y")
+# TODO CCA with all conditions combined as y
+statadjusted =
+  do.call(
+    rbind,
+    lapply(
+      c("m154207", "m167203", "m168101"),
+      function (s) {
+        print(s)
+        cond = as.character(x$spdietcombined)
+        cond[! cond %in% c(s, "sp")] = NA
+        do.call(
+          rbind,
+          lapply(
+            row.names(x),
+            function (i) {
+              print(i)
+              do.call(
+                rbind,
+                # lapply(
+                parLapply(cl = cl,
+                  row.names(y),
+                  function (j) {
+                    a0 = lm(y ~ x,
+                            data = list(
+                              y = (cond != "sp"),
+                              x = cbind(
+                                t(assay(y)[j, , drop = FALSE]),
+                                t(assay(x)[i, , drop = FALSE]))))
+                    data.frame(
+                      Motif = i,
+                      Gene = j,
+                      sample = s,
+                      statadjusted = summary(a0)$coefficients[2, "t value"])
+                  }))
+            }))
+      }))
+# saveRDS(statadjusted, file = paste0("statadjusted.", tgtct, ".rds"))
+statadjusted = readRDS(paste0("statadjusted.", tgtct, ".rds"))
+```
+
+Overlay statadjusted with corMGsigsig.
+We discard motif-gene pairs where corMGsigsig = 0.
+
+```{r}
+s = "m154207"
+s = "m167203"
+s = "m168101"
+
+library(dplyr)
+clusterExport(cl, c("s", "corMGsigsig", "statadjusted",
+                    "filter",
+                    "select",
+                    "slice_min",
+                    "arrange",
+                    "%>%"))
+statadjustededges =
+  # sapply(
+  parSapply(cl = cl,
+    colnames(corMGsigsig),
+    function (tgtgene) {
+      data =
+        statadjusted %>%
+        dplyr::filter(Gene == tgtgene) %>%
+        dplyr::filter(sample == s) %>%
+        dplyr::select(Motif, statadjusted)
+      data$corMGsigsig = corMGsigsig[data$Motif, tgtgene]
+      data$statadjustedpos =
+        data$statadjusted *
+        sign(median(data$statadjusted))
+      statadjustedposlb =
+        2.5 * quantile(data$statadjustedpos, 0.25) +
+        (-1.5) * quantile(data$statadjustedpos, 0.75)
+      dataupstreamMotif =
+        data %>%
+        dplyr::filter(statadjustedpos < statadjustedposlb) %>%
+        dplyr::filter(statadjustedpos >= 0) %>%
+        dplyr::filter(corMGsigsig > sqrt(0.5) * max(data$corMGsigsig) |
+                        corMGsigsig < sqrt(0.5) * min(data$corMGsigsig)) %>%
+        dplyr::slice_min(statadjustedpos, n = 10) %>%
+        dplyr::arrange(statadjustedpos)
+      x = rep(0, nrow(corMGsigsig))
+      names(x) = row.names(corMGsigsig)
+      if (nrow(dataupstreamMotif) > 0) {
+        x[dataupstreamMotif$Motif] = 1
+      }
+      return(x)
+    })
+
+plot(log10(sort(rowSums(statadjustededges))))
+plot(
+  log10(rank(- rowSums(statadjustededges))),
+  log10(rowSums(statadjustededges)))
+head(sort(rowSums(statadjustededges), decreasing = TRUE), 20)
+```
+
+The motifs with higher degrees (ie hubs)
+show larger differential expression under diet intervention.
+However, the corresponding genes (mRNA) of the motif are not differentially expressed.
+
+```{r}
+plotdata = data.frame(
+  statadjustededges = rowSums(statadjustededges))
+foo = resultcomparedMotif[
+  resultcomparedMotif$celltype == tgtct &
+    resultcomparedMotif$sample == s, ]
+plotdata$resultcomparedMotif =
+  foo$statistic[match(sub("^Motif.", "", rownames(plotdata)), foo$genename)]
+foo = resultcomparedGene[
+  resultcomparedGene$celltype == tgtct &
+    resultcomparedGene$sample == s, ]
+plotdata$resultcomparedGene =
+  foo$statistic[match(sub("^Motif.", "", rownames(plotdata)), foo$genename)]
+ggplot(data = plotdata) +
+  geom_point(
+    aes(x = log1p(statadjustededges),
+        y = resultcomparedMotif,
+        col = resultcomparedGene)) +
+  scale_color_gradient2(low = "blue", mid = "white", high = "red")
+```
+
+Clustering of motifs
+
+```{r}
+foo = statadjustededges[rowSums(statadjustededges) >= 200, ]
+# heatmap(foo)
+plot(
+  hclust(dist(foo, method = "binary"), method = "average"),
+  cex = 0.5)
+```
+
+# Multiple motifs-to-one gene analysis
+
+Include experimental condition as predictor.
+
+```{r}
+x = data.frame(
+  m154207 = (matnrDEGene$Sample == "m154207"),
+  m167203 = (matnrDEGene$Sample == "m167203"),
+  m168101 = (matnrDEGene$Sample == "m168101"))
+x = t(as.matrix(x) * 1)
+```
+
+For each gene, compute "regulatory" motifs.
 
 ```{r}
 library(GENIE3)
+
+set.seed(123)
 weightMatrix = GENIE3(
-  rbind(assay(matnrGene), assay(matnrMotif)),
-  regulators = rownames(matnrMotif),
-  targets = rownames(matnrGene),
-  nTrees = 100,
-  nCores = 20,
+  rbind(
+    assay(matnrDEGene),
+    assay(matnrDEMotif),
+    x),
+  targets = rownames(matnrDEGene),
+  regulators = c(rownames(matnrDEMotif), rownames(x)),
+  nCores = 22,
   verbose = TRUE)
+
+# saveRDS(weightMatrix, file = paste0("weightMatrix.",  tgtct, ".rds"))
+weightMatrix = readRDS(paste0("weightMatrix.",  tgtct, ".rds"))
 ```
 
+Clean noise.
+
+```{r}
+plot(quantile(weightMatrix, seq(0, 1, 0.01)))
+plot(quantile(weightMatrix, seq(1 - 1e-3, 1, 1e-5)))
+plot(quantile(weightMatrix, seq(1 - 1e-4, 1, 1e-6)))
+
+x = min(colQuantiles(weightMatrix, probs = 0.95))
+weightMatrix = weightMatrix - x
+weightMatrix[weightMatrix < 0] = 0
+
+plot(sort(rowMeans(weightMatrix)))
+weightMatrix = weightMatrix[rowMeans(weightMatrix) > 1e-4, ] # arbitrary
+
+plot(hclust(dist(weightMatrix)))
+```
+
+Nonnegative matrix factorization
+For hepato, rank = 4
+
+```{r}
+library(NMF)
+
+gc()
+estim.r = nmf(weightMatrix,
+              rank = 2:6,
+              nrun = 30, # 10 30
+              seed = 123456,
+              .opt = 'vP4') # P5 error
+# plot(estim.r)
+
+set.seed(123456)
+V.random = randomize(weightMatrix)
+gc()
+estim.r.random = nmf(V.random,
+                     rank = 2:6,
+                     nrun = 30, # 10 30
+                     seed = 123456,
+                     .opt = 'vP4')
+plot(estim.r, estim.r.random)
+rm(V.random)
+
+res.nndsvd = nmf(weightMatrix,
+                 rank = 4,
+                 seed = 'nndsvd')
+gc()
+res = nmf(weightMatrix,
+          rank = 4,
+          nrun = 100, # 10 100
+          seed = 123456,
+          .opt = 'vP3')
+summary(res.nndsvd, target = weightMatrix)
+summary(res, target = weightMatrix)
+# saveRDS(res, file = paste0("NMF.", tgtct, ".rds"))
+res = readRDS(paste0("NMF.", tgtct, ".rds"))
+
+basismap(res)
+# coefmap(res)
+```
+
+Inspect result.
+
+```{r}
+head(sort(basis(res)[, 1], decreasing = TRUE), 20)
+basis(res)["Motif.Nfkb1", ]
+basis(res)["Motif.Hnf4g", ]
+basis(res)["m154207", ] # (F2) F4
+basis(res)["m167203", ] # F2
+basis(res)["m168101", ] # F4
+
+head(sort(coef(res)[1, ], decreasing = TRUE), 20)
+coef(res)[, "Gene.Hmgcr"]
+```
+
+Gene set enrichment analysis for factors of the genes.
+Load `gslists` from `9_GSEA.Rmd`.
+
+```{r}
+### hepatocyte
+# F2
+# dbname ="KEGG"; gsname = "KEGG_APOPTOSIS%%M8492"
+# dbname ="H"; gsname = "HALLMARK_TNFA_SIGNALING_VIA_NFKB%%M5890"
+# dbname ="GOBP"; gsname = "GOBP_CYTOKINE_PRODUCTION%%M13156"
+# dbname ="GOBP"; gsname = "GOBP_ACTIN_FILAMENT_BASED_PROCESS%%M9082"
+# dbname ="GOBP"; gsname = "GOBP_CELL_MIGRATION%%M40389"
+# F4
+# dbname ="GOBP"; gsname = "GOBP_INSULIN_LIKE_GROWTH_FACTOR_RECEPTOR_SIGNALING_PATHWAY%%M12608"
+# dbname ="REACTOME"; gsname = "REACTOME_CHOLESTEROL_BIOSYNTHESIS%%M16227"
+# dbname ="REACTOME"; gsname = "REACTOME_REGULATION_OF_CHOLESTEROL_BIOSYNTHESIS_BY_SREBP_SREBF%%M27001"
+# dbname ="KEGG"; gsname = "KEGG_PPAR_SIGNALING_PATHWAY%%M13088"
+# F1, 2, 4
+# dbname ="GOBP"; gsname = "GOBP_STEROID_METABOLIC_PROCESS%%M16758"
+# dbname ="GOBP"; gsname = "GOBP_FATTY_ACID_METABOLIC_PROCESS%%M17829"
+# F2, 4
+# dbname ="H"; gsname = "HALLMARK_XENOBIOTIC_METABOLISM%%M5934"
+# none
+# dbname ="REACTOME"; gsname = "REACTOME_EXTRACELLULAR_MATRIX_ORGANIZATION%%M610"
+# dbname ="REACTOME"; gsname = "REACTOME_COLLAGEN_FORMATION%%M631"
+# F1, 4 
+# dbname ="GOBP"; gsname = "GOBP_CELLULAR_AMINO_ACID_METABOLIC_PROCESS%%M9857"
+dbname ="REACTOME"; gsname = "REACTOME_METABOLISM_OF_AMINO_ACIDS_AND_DERIVATIVES%%M727"
+
+gs = gslists[[dbname]][[gsname]]
+
+x = as.data.frame(coef(res))
+x$factor = paste0("F", 1:nrow(x))
+x = tidyr::pivot_longer(x, cols = -c("factor"), names_to = "Gene")
+x$ings = (x$Gene %in% paste0("Gene.", gs)) * 1
+summary(lm(value ~ 0 + factor + factor : ings, data = x))
+```
+
+Motifs with larger VarianceImportance in F2 are differentially expressed under m154207 m167203.
+Motifs with larger VarianceImportance in F4 are differentially expressed under m154207 m168101.
+Same for genes.
+
+```{r}
+x = as.data.frame(basis(res))
+names(x) = paste0("F", 1:ncol(x))
+x$genename = sub("^Motif.", "", row.names(x))
+dataplot = resultcomparedMotif %>%
+  dplyr::filter(celltype == tgtct)
+
+# x = as.data.frame(t(coef(res)))
+# names(x) = paste0("F", 1:ncol(x))
+# x$genename = sub("^Gene.", "", row.names(x))
+# dataplot = resultcomparedGene %>%
+#   dplyr::filter(celltype == tgtct)
+
+dataplot = dplyr::left_join(dataplot, x, by = "genename")
+dataplot = tidyr::drop_na(dataplot, F1)
+dataplot = tidyr::pivot_longer(dataplot,
+                               cols = matches("^F\\d+", perl = TRUE),
+                               names_to = "factor",
+                               values_to = "VarianceImportance")
+ggplot(data = dataplot,
+       aes(x = statistic,
+           y = VarianceImportance)) +
+  geom_point(size = 0.5) +
+  facet_grid(rows = vars(factor), cols = vars(sample))
+```
