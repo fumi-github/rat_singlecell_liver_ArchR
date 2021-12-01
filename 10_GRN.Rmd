@@ -218,7 +218,7 @@ corMGsigsiggraphcomp$csize
 head(sort(degree(corMGsigsiggraph), decreasing = TRUE))
 ```
 
-## Detect mediator motifs by conditional analysis
+## Detect mediator motifs by conditional analysis; diminished t-statistic
 
 We are interested if the effect of condition (ie diet) on Gene j
 is mediated by Motif i.
@@ -373,6 +373,144 @@ foo = statadjustededges[rowSums(statadjustededges) >= 200, ]
 plot(
   hclust(dist(foo, method = "binary"), method = "average"),
   cex = 0.5)
+```
+## Detect mediator motifs by conditional analysis; mutual information
+
+We want to detect the information flow (causality) "condition -> Motif i -> Gene j".
+It doesn't matter whether there is bypass "condition -> Gene j".
+In the language of entropy and mutual information, we detect by
+mutual_info(Gene j; Motif i; condition) / entropy(Gene j) > 0.
+Remark that
+mutual_info(Gene j; Motif i; condition)
+= mutual_info(Gene j; Motif i)
++ mutual_info(Gene j; condition)
+- mutual_info(Gene j; Motif i, condition)
+Instead of entropy and mutual information,
+we actually use R2 (explained variance) of linear regression.
+
+```{r}
+x = matnrDEMotif
+y = matnrDEGene
+d = data.frame(
+  m154207 = (matnrDEGene$Sample == "m154207"),
+  m167203 = (matnrDEGene$Sample == "m167203"),
+  m168101 = (matnrDEGene$Sample == "m168101"))
+d = t(as.matrix(d) * 1)
+```
+
+```{r}
+residualnull = rowSums( (assay(y) - rowMeans(assay(y)))^2 )
+
+a1 = lm(t(assay(y)) ~ t(d))
+R2diet = 1 - colSums(a1$residuals^2) / residualnull
+
+cl = makeCluster(20)
+clusterExport(cl, "assay")
+clusterExport(cl, "x")
+clusterExport(cl, "y")
+clusterExport(cl, "d")
+clusterExport(cl, "residualnull")
+R2Motif =
+  do.call(
+    rbind,
+    # lapply(
+    parLapply(cl = cl,
+              row.names(x),
+              function (i) {
+                a1 = lm(t(assay(y)) ~ assay(x)[i, ])
+                1 - colSums(a1$residuals^2) / residualnull
+              }))
+R2Motifdiet =
+  do.call(
+    rbind,
+    # lapply(
+    parLapply(cl = cl,
+              row.names(x),
+              function (i) {
+                print(i)
+                a1 = lm(t(assay(y)) ~ cbind(assay(x)[i, ], t(d)))
+                1 - colSums(a1$residuals^2) / residualnull
+              }))
+R2Motifdietmutual =
+  R2Motif + matrix(R2diet, nrow = nrow(x), ncol = nrow(y), byrow = TRUE) - R2Motifdiet
+R2Motifdietmutual[R2Motifdietmutual < 0] = 0
+rownames(R2Motifdietmutual) = rownames(x)
+# saveRDS(R2Motifdietmutual, paste0("R2Motifdietmutual.", tgtct, ".rds"))
+R2Motifdietmutual = readRDS(paste0("R2Motifdietmutual.", tgtct, ".rds"))
+```
+
+```{r}
+R2Motifdietmutual = readRDS(paste0("R2Motifdietmutual.", tgtct, ".rds"))
+weightMatrix = readRDS(paste0("GENIE3.",  tgtct, ".rds"))
+x = min(colQuantiles(weightMatrix, probs = 0.95))
+weightMatrix = weightMatrix - x
+weightMatrix[weightMatrix < 0] = 0
+identical(colnames(R2Motifdietmutual), colnames(weightMatrix))
+all(rownames(R2Motifdietmutual) %in%  rownames(weightMatrix))
+foo = weightMatrix[rownames(R2Motifdietmutual), ]
+plot(rowSums(R2Motifdietmutual), rowSums(foo))
+plot(colSums(R2Motifdietmutual), colSums(foo))
+```
+
+Clean noise.
+TODO  eliminate if corMGsig = 0
+
+```{r}
+plot(quantile(R2Motifdietmutual, seq(0, 1, 0.01)))
+plot(quantile(R2Motifdietmutual, seq(1 - 1e-3, 1, 1e-5)))
+plot(quantile(R2Motifdietmutual, seq(1 - 1e-4, 1, 1e-6)))
+
+x = min(colQuantiles(R2Motifdietmutual, probs = 0.95))
+R2Motifdietmutual = R2Motifdietmutual - x
+R2Motifdietmutual[R2Motifdietmutual < 0] = 0
+
+# plot(sort(rowMeans(R2Motifdietmutual)))
+R2Motifdietmutual = R2Motifdietmutual[rowMeans(R2Motifdietmutual) > 0.001, ] # arbitrary
+
+plot(hclust(dist(R2Motifdietmutual)))
+```
+
+Nonnegative matrix factorization
+For hepato, rank = 4
+
+```{r}
+library(NMF)
+
+gc()
+estim.r = nmf(R2Motifdietmutual,
+              rank = 2:6,
+              nrun = 30, # 10 30
+              seed = 123456,
+              .opt = 'vP4') # P5 error
+# plot(estim.r)
+
+set.seed(123456)
+V.random = randomize(R2Motifdietmutual)
+gc()
+estim.r.random = nmf(V.random,
+                     rank = 2:6,
+                     nrun = 30, # 10 30
+                     seed = 123456,
+                     .opt = 'vP4')
+plot(estim.r, estim.r.random)
+rm(V.random)
+
+res.nndsvd = nmf(R2Motifdietmutual,
+                 rank = 4,
+                 seed = 'nndsvd')
+gc()
+res = nmf(R2Motifdietmutual,
+          rank = 4,
+          nrun = 100, # 10 100
+          seed = 123456,
+          .opt = 'vP3')
+summary(res.nndsvd, target = R2Motifdietmutual)
+summary(res, target = R2Motifdietmutual)
+# saveRDS(res, file = paste0("R2Motifdietmutual.NMF.", tgtct, ".rds"))
+# res = readRDS(paste0("R2Motifdietmutual.NMF.", tgtct, ".rds"))
+
+basismap(res)
+# coefmap(res)
 ```
 
 # Multiple motifs-to-one gene analysis
