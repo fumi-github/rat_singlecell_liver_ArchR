@@ -403,8 +403,8 @@ weightMatrix = GENIE3(
   nCores = 22,
   verbose = TRUE)
 
-# saveRDS(weightMatrix, file = paste0("weightMatrix.",  tgtct, ".rds"))
-weightMatrix = readRDS(paste0("weightMatrix.",  tgtct, ".rds"))
+# saveRDS(weightMatrix, file = paste0("GENIE3.",  tgtct, ".rds"))
+weightMatrix = readRDS(paste0("GENIE3.",  tgtct, ".rds"))
 ```
 
 Clean noise.
@@ -460,8 +460,8 @@ res = nmf(weightMatrix,
           .opt = 'vP3')
 summary(res.nndsvd, target = weightMatrix)
 summary(res, target = weightMatrix)
-# saveRDS(res, file = paste0("NMF.", tgtct, ".rds"))
-res = readRDS(paste0("NMF.", tgtct, ".rds"))
+# saveRDS(res, file = paste0("GENIE3.NMF.", tgtct, ".rds"))
+res = readRDS(paste0("GENIE3.NMF.", tgtct, ".rds"))
 
 basismap(res)
 # coefmap(res)
