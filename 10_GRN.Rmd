@@ -374,6 +374,7 @@ plot(
   hclust(dist(foo, method = "binary"), method = "average"),
   cex = 0.5)
 ```
+
 ## Detect mediator motifs by conditional analysis; mutual information
 
 We want to detect the information flow (causality) "condition -> Motif i -> Gene j".
@@ -453,16 +454,23 @@ plot(colSums(R2Motifdietmutual), colSums(foo))
 ```
 
 Clean noise.
-TODO  eliminate if corMGsig = 0
 
 ```{r}
 plot(quantile(R2Motifdietmutual, seq(0, 1, 0.01)))
 plot(quantile(R2Motifdietmutual, seq(1 - 1e-3, 1, 1e-5)))
 plot(quantile(R2Motifdietmutual, seq(1 - 1e-4, 1, 1e-6)))
 
+# Apparently unnecessary (nmf is not suited for sparse matrix)
+# But actually improves GSEA of coef
 x = min(colQuantiles(R2Motifdietmutual, probs = 0.95))
 R2Motifdietmutual = R2Motifdietmutual - x
 R2Motifdietmutual[R2Motifdietmutual < 0] = 0
+
+# NG; take intersection with corMGsigsig
+# nmf crashes for sparse matrix
+# identical(rownames(R2Motifdietmutual), rownames(corMGsigsig))
+# identical(colnames(R2Motifdietmutual), colnames(corMGsigsig))
+# R2Motifdietmutual[corMGsigsig == 0] = 0
 
 # plot(sort(rowMeans(R2Motifdietmutual)))
 R2Motifdietmutual = R2Motifdietmutual[rowMeans(R2Motifdietmutual) > 0.001, ] # arbitrary
@@ -470,8 +478,9 @@ R2Motifdietmutual = R2Motifdietmutual[rowMeans(R2Motifdietmutual) > 0.001, ] # a
 plot(hclust(dist(R2Motifdietmutual)))
 ```
 
-Nonnegative matrix factorization
-For hepato, rank = 4
+Nonnegative matrix factorization.
+Rank cutoff is not obvious from estim.r.
+From GSEA of coef, rank = 4 for hepato
 
 ```{r}
 library(NMF)
@@ -503,11 +512,11 @@ res = nmf(R2Motifdietmutual,
           rank = 4,
           nrun = 100, # 10 100
           seed = 123456,
-          .opt = 'vP3')
+          .opt = 'vP4')
 summary(res.nndsvd, target = R2Motifdietmutual)
 summary(res, target = R2Motifdietmutual)
 # saveRDS(res, file = paste0("R2Motifdietmutual.NMF.", tgtct, ".rds"))
-# res = readRDS(paste0("R2Motifdietmutual.NMF.", tgtct, ".rds"))
+res = readRDS(paste0("R2Motifdietmutual.NMF.", tgtct, ".rds"))
 
 basismap(res)
 # coefmap(res)
@@ -595,7 +604,7 @@ res = nmf(weightMatrix,
           rank = 4,
           nrun = 100, # 10 100
           seed = 123456,
-          .opt = 'vP3')
+          .opt = 'vP4')
 summary(res.nndsvd, target = weightMatrix)
 summary(res, target = weightMatrix)
 # saveRDS(res, file = paste0("GENIE3.NMF.", tgtct, ".rds"))
