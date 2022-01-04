@@ -8,7 +8,12 @@ output: html_notebook
 Target cell type
 
 ```{r}
-tgtct = "hepato"
+tgtct =
+  "hepato"
+  # "stellate"
+  # "endothelial"
+  # "myelo"
+  # "T_NK"
 ```
 
 Beforehand,
@@ -91,8 +96,8 @@ Inspect.
 
 ```{r}
 ggplot(data = data.frame(
-  x = assay(matnrGene)["Gene.Il1r1", ],
-  y = assay(matnrMotif)["Motif.Nfkb1", ],
+  x = assay(matnrGene)["Gene.Abcg1", ],
+  y = assay(matnrMotif)["Motif.Stat5b", ],
   s = as.character(matnrGene$Sample)),
   aes(x, y)) +
   geom_point(size = 0.5) +
