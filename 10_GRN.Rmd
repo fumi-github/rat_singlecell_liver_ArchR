@@ -572,12 +572,22 @@ weightMatrix[weightMatrix < 0] = 0
 
 plot(sort(rowMeans(weightMatrix)))
 weightMatrix = weightMatrix[rowMeans(weightMatrix) > 1e-4, ] # arbitrary
+# stellate:    drops m167203 m168101 
+# endothelial: drops m167203
+# myelo:       drops m167203 m168101 
+# T_NK:        drops all experimental conditions
+
+# zero columns cause error in nmf
+weightMatrix = weightMatrix[, colMaxs(weightMatrix) > 0]
 
 plot(hclust(dist(weightMatrix)))
 ```
 
 Nonnegative matrix factorization
-For hepato, rank = 4
+
+To choose the optimal value of r, first try 1; if not clear try 2.
+1. (Hutchins2008) suggested to choose the first value where the RSS curve presents an inflection point, and (Frigyesi2008) considered the value of r after which the decrease in the RSS becomes lower than the decrease of the RSS obtained from random data.
+2. (Brunet2004) proposed to take the value of r after which the cophenetic coefficient starts to drop steeply.
 
 ```{r}
 library(NMF)
@@ -598,104 +608,252 @@ estim.r.random = nmf(V.random,
                      nrun = 30, # 10 30
                      seed = 123456,
                      .opt = 'vP4')
-plot(estim.r, estim.r.random)
+# plot(estim.r, estim.r.random)
 rm(V.random)
 
-res.nndsvd = nmf(weightMatrix,
-                 rank = 4,
-                 seed = 'nndsvd')
+r = 4 # hepato stellate myelo
+r = 3 # endothelial T_NK
+
+# res.nndsvd = nmf(weightMatrix,
+#                  rank = r,
+#                  seed = 'nndsvd')
+
 gc()
 res = nmf(weightMatrix,
-          rank = 4,
+          rank = r,
           nrun = 100, # 10 100
           seed = 123456,
           .opt = 'vP4')
-summary(res.nndsvd, target = weightMatrix)
 summary(res, target = weightMatrix)
-# saveRDS(res, file = paste0("GENIE3.NMF.", tgtct, ".rds"))
-res = readRDS(paste0("GENIE3.NMF.", tgtct, ".rds"))
+# saveRDS(res, file = paste0("GENIE3.NMF.rank", r, ".", tgtct, ".rds"))
+res = readRDS(paste0("GENIE3.NMF.rank", r, ".", tgtct, ".rds"))
 
 basismap(res)
 # coefmap(res)
+summary(basis(res))
+summary(t(coefficients(res)))
+basis(res)["Motif.Hnf4g", ]
 ```
 
-Inspect result.
+In `summary(t(coefficients(res)))`, one factor has large median and 3rd quantile.
+Does it correspond to "all of the remaining genes"?
+The basis for the  factor includes Motif.Hnf4g.
+We set this factor as the last one in moduleindex.
+Motif.Hnf4g is up in m154207 (HFD4w) and down in m168101 (washout).  Why??
+
+We set the factor(s) with significant GSEA in the beginning (see below).
 
 ```{r}
-head(sort(basis(res)[, 1], decreasing = TRUE), 20)
-basis(res)["Motif.Nfkb1", ]
-basis(res)["Motif.Hnf4g", ]
-basis(res)["m154207", ] # (F2) F4
-basis(res)["m167203", ] # F2
-basis(res)["m168101", ] # F4
+# hepato
+moduleindex = c(4, 2, 1, 3)
+# stellate
+moduleindex = c(1, 2, 4, 3)
+# endothelial
+moduleindex = c(1, 3, 2)
+# myelo
+moduleindex = c(3, 1, 2, 4)
+# T_NK
+moduleindex = c(1, 2, 3)
 
-head(sort(coef(res)[1, ], decreasing = TRUE), 20)
-coef(res)[, "Gene.Hmgcr"]
+topMotiflist = lapply(
+  moduleindex,
+  function (i) {
+    x = sort(basis(res)[, i], decreasing = TRUE)
+    x = x[! names(x) %in% grep("^m", names(x), value = TRUE)]
+    x = x[x > max(x) / 2]
+    return(head(names(x), 5))
+  })
+topMotif = union(do.call(c, topMotiflist), c())
+
+topGenelist = lapply(
+  moduleindex,
+  function (i) {
+    x = sort(coef(res)[i, ], decreasing = TRUE)
+    x = x[x > max(x) / 2]
+    return(head(names(x), 5))
+  })
+topGene = union(do.call(c, topGenelist), c())
+
+weightMatrix = readRDS(paste0("GENIE3.",  tgtct, ".rds"))
+x = t(weightMatrix[topMotif, topGene])
+rownames(x) = sub("^Gene.", "", rownames(x))
+colnames(x) = sub("^Motif.", "", colnames(x))
+
+aC = as.data.frame(basis(res)[topMotif, moduleindex])
+names(aC) = paste0("Motif.M", 1:ncol(aC))
+aR = as.data.frame(t(coef(res)[moduleindex, topGene]))
+names(aR) = paste0("Gene.M", 1:ncol(aR))
+NMF::aheatmap(
+  x,
+  color = c("white", "black"),
+  annCol = aC,
+  annRow = aR,
+  main = tgtct,
+  treeheight = 0,
+  filename = "NMF.heatmap.pdf", width = 5, height = 5)
 ```
 
 Gene set enrichment analysis for factors of the genes.
 Load `gslists` from `9_GSEA.Rmd`.
 
 ```{r}
-### hepatocyte
-# F2
-# dbname ="KEGG"; gsname = "KEGG_APOPTOSIS%%M8492"
-# dbname ="H"; gsname = "HALLMARK_TNFA_SIGNALING_VIA_NFKB%%M5890"
-# dbname ="GOBP"; gsname = "GOBP_CYTOKINE_PRODUCTION%%M13156"
-# dbname ="GOBP"; gsname = "GOBP_ACTIN_FILAMENT_BASED_PROCESS%%M9082"
-# dbname ="GOBP"; gsname = "GOBP_CELL_MIGRATION%%M40389"
-# F4
-# dbname ="GOBP"; gsname = "GOBP_INSULIN_LIKE_GROWTH_FACTOR_RECEPTOR_SIGNALING_PATHWAY%%M12608"
-# dbname ="REACTOME"; gsname = "REACTOME_CHOLESTEROL_BIOSYNTHESIS%%M16227"
-# dbname ="REACTOME"; gsname = "REACTOME_REGULATION_OF_CHOLESTEROL_BIOSYNTHESIS_BY_SREBP_SREBF%%M27001"
-# dbname ="KEGG"; gsname = "KEGG_PPAR_SIGNALING_PATHWAY%%M13088"
-# F1, 2, 4
-# dbname ="GOBP"; gsname = "GOBP_STEROID_METABOLIC_PROCESS%%M16758"
-# dbname ="GOBP"; gsname = "GOBP_FATTY_ACID_METABOLIC_PROCESS%%M17829"
-# F2, 4
-# dbname ="H"; gsname = "HALLMARK_XENOBIOTIC_METABOLISM%%M5934"
-# none
-# dbname ="REACTOME"; gsname = "REACTOME_EXTRACELLULAR_MATRIX_ORGANIZATION%%M610"
-# dbname ="REACTOME"; gsname = "REACTOME_COLLAGEN_FORMATION%%M631"
-# F1, 4 
-# dbname ="GOBP"; gsname = "GOBP_CELLULAR_AMINO_ACID_METABOLIC_PROCESS%%M9857"
-dbname ="REACTOME"; gsname = "REACTOME_METABOLISM_OF_AMINO_ACIDS_AND_DERIVATIVES%%M727"
+dbnamegsname = rbind(
+  data.frame(dbname = 'GOBP', gsname = 'GOBP_STEROID_METABOLIC_PROCESS%%M16758'),
+  data.frame(dbname = 'REACTOME', gsname = 'REACTOME_CHOLESTEROL_BIOSYNTHESIS%%M16227'),
+  data.frame(dbname = 'REACTOME', gsname = 'REACTOME_REGULATION_OF_CHOLESTEROL_BIOSYNTHESIS_BY_SREBP_SREBF%%M27001'),
+  data.frame(dbname = 'GOBP', gsname = 'GOBP_FATTY_ACID_METABOLIC_PROCESS%%M17829'),
+  data.frame(dbname = 'GOBP', gsname = 'GOBP_LIPID_STORAGE%%M15541'),
+  # data.frame(dbname = 'REACTOME', gsname = 'REACTOME_CHOLINE_CATABOLISM%%M27619'), # small gene set
+  data.frame(dbname = 'KEGG', gsname = 'KEGG_PPAR_SIGNALING_PATHWAY%%M13088'),
+  data.frame(dbname = 'H', gsname = 'HALLMARK_XENOBIOTIC_METABOLISM%%M5934'),
+  data.frame(dbname = 'H', gsname = 'HALLMARK_TNFA_SIGNALING_VIA_NFKB%%M5890'),
+  data.frame(dbname = 'GOBP', gsname = 'GOBP_CYTOKINE_PRODUCTION%%M13156'),
+  data.frame(dbname = 'GOBP', gsname = 'GOBP_RESPONSE_TO_CYTOKINE%%M15783'),
+  data.frame(dbname = 'REACTOME', gsname = 'REACTOME_INTERLEUKIN_1_SIGNALING%%M27895'),
+  data.frame(dbname = 'REACTOME', gsname = 'REACTOME_INTERLEUKIN_10_SIGNALING%%M27605'),
+  data.frame(dbname = 'REACTOME', gsname = 'REACTOME_INFLAMMASOMES%%M1072'),
+  data.frame(dbname = 'GOBP', gsname = 'GOBP_ADAPTIVE_IMMUNE_RESPONSE%%M13847'),
+  data.frame(dbname = 'KEGG', gsname = 'KEGG_APOPTOSIS%%M8492'),
+  data.frame(dbname = 'GOBP', gsname = 'GOBP_ACTIN_FILAMENT_BASED_PROCESS%%M9082'),
+  data.frame(dbname = 'GOBP', gsname = 'GOBP_CELL_MIGRATION%%M40389'),
+  data.frame(dbname ="REACTOME", gsname = "REACTOME_EXTRACELLULAR_MATRIX_ORGANIZATION%%M610"), # not significant in whole analysis
+  data.frame(dbname = 'GOBP', gsname = 'GOBP_INSULIN_LIKE_GROWTH_FACTOR_RECEPTOR_SIGNALING_PATHWAY%%M12608'))
+  
+#   data.frame(dbname ="GOBP", gsname = "GOBP_CELLULAR_AMINO_ACID_METABOLIC_PROCESS%%M9857"),
+#   data.frame(dbname ="REACTOME", gsname = "REACTOME_METABOLISM_OF_AMINO_ACIDS_AND_DERIVATIVES%%M727")
+# )
 
-gs = gslists[[dbname]][[gsname]]
+pvalues =
+  t(apply(
+    dbnamegsname,
+    1,
+    function (a) {
+      gs = gslists[[ a[1] ]][[ a[2] ]]
+      x = as.data.frame(t(coef(res)))
+      ings = (rownames(x) %in% paste0("Gene.", gs))
+      if (min(sum(ings), sum(! ings)) < 5) {
+        return(rep(NA, ncol(x)))
+      } else {
+        return(sapply(
+          1:ncol(x),
+          function (i) {
+            t.test(x[ings, i], x[! ings, i], alternative = "greater", var.equal = TRUE)$p.value
+          }
+        ))
+      }
+    }
+  ))
+pvalues = pvalues[, moduleindex, drop = FALSE]
 
-x = as.data.frame(coef(res))
-x$factor = paste0("F", 1:nrow(x))
-x = tidyr::pivot_longer(x, cols = -c("factor"), names_to = "Gene")
-x$ings = (x$Gene %in% paste0("Gene.", gs)) * 1
-summary(lm(value ~ 0 + factor + factor : ings, data = x))
+dataplot = as.data.frame(pvalues)
+names(dataplot) =  paste0("Module ", 1:ncol(dataplot))
+dataplot$gsname = factor(dbnamegsname$gsname, levels = dbnamegsname$gsname)
+dataplot = tidyr::pivot_longer(dataplot,
+                               cols = matches("^Module \\d+", perl = TRUE),
+                               names_to = "factor",
+                               values_to = "P")
+p1 =
+  ggplot(dataplot,
+         aes(x = gsname,
+             y = - log10(P))) +
+  geom_bar(stat = "identity",
+           aes(fill = (P < 0.05 / nrow(pvalues) / ncol(pvalues)))) +
+  scale_fill_manual(values = c("gray50", "black")) +
+  guides(fill = "none") +
+  facet_grid(rows = vars(factor)) +
+  theme(axis.text.x = element_text(angle = 90,
+                                   hjust = 1,
+                                   vjust = 0.5,
+                                   size = rel(0.3))) +
+  labs(title = tgtct,
+       x = NULL)
+ggsave(p1, filename = "modulescore_GSEA.Gene.pdf", width = 3, height = 5)
 ```
 
-Motifs with larger VarianceImportance in F2 are differentially expressed under m154207 m167203.
-Motifs with larger VarianceImportance in F4 are differentially expressed under m154207 m168101.
-Same for genes.
+Visualize NMF of VarianceImportance vs differential expression.
 
 ```{r}
+# Run this for Motif
 x = as.data.frame(basis(res))
-names(x) = paste0("F", 1:ncol(x))
-x$genename = sub("^Motif.", "", row.names(x))
+x = x[, moduleindex, drop = FALSE]
+names(x) = paste0("Module ", 1:ncol(x))
+x$genename = row.names(x)
+x = tidyr::pivot_longer(x,
+                        cols = matches("^Module \\d+", perl = TRUE),
+                        names_to = "factor",
+                        values_to = "score")
+x$intop = FALSE
+for (i in 1:length(topMotiflist)) {
+  x$intop[(x$genename %in% topMotiflist[[i]]) &
+            (x$factor == paste0("Module ", i))] = TRUE
+}
+x$genename = sub("^Motif.", "", x$genename)
 dataplot = resultcomparedMotif %>%
   dplyr::filter(celltype == tgtct)
 
-# x = as.data.frame(t(coef(res)))
-# names(x) = paste0("F", 1:ncol(x))
-# x$genename = sub("^Gene.", "", row.names(x))
-# dataplot = resultcomparedGene %>%
-#   dplyr::filter(celltype == tgtct)
+# Run this for Gene
+x = as.data.frame(t(coef(res)))
+x = x[, moduleindex, drop = FALSE]
+names(x) = paste0("Module ", 1:ncol(x))
+x$genename = row.names(x)
+x = tidyr::pivot_longer(x,
+                        cols = matches("^Module \\d+", perl = TRUE),
+                        names_to = "factor",
+                        values_to = "score")
+x$intop = FALSE
+for (i in 1:length(topGenelist)) {
+  x$intop[(x$genename %in% topGenelist[[i]]) &
+            (x$factor == paste0("Module ", i))] = TRUE
+}
+x$genename = sub("^Gene.", "", x$genename)
+dataplot = resultcomparedGene %>%
+  dplyr::filter(celltype == tgtct)
 
-dataplot = dplyr::left_join(dataplot, x, by = "genename")
-dataplot = tidyr::drop_na(dataplot, F1)
-dataplot = tidyr::pivot_longer(dataplot,
-                               cols = matches("^F\\d+", perl = TRUE),
-                               names_to = "factor",
-                               values_to = "VarianceImportance")
-ggplot(data = dataplot,
-       aes(x = statistic,
-           y = VarianceImportance)) +
-  geom_point(size = 0.5) +
-  facet_grid(rows = vars(factor), cols = vars(sample))
+dataplot = dplyr::inner_join(dataplot, x, by = "genename")
+p1 =
+  ggplot(data = dataplot,
+         aes(x = statistic,
+             y = score)) +
+  geom_point(aes(color = intop), size = 0.3) +
+  scale_color_manual(values = c("black", "red"), guide = "none") +
+  facet_grid(rows = vars(factor),
+             cols = vars(sample),
+             scales = "free_y") +
+  labs(x = "Differential expression by diet [Z statistic]",
+       y = "Module score") +
+  theme(axis.text.x = element_text(size = rel(0.75)),
+        axis.text.y = element_text(size = rel(0.75))) +
+  theme(panel.spacing.y = unit(1, "lines"))
+ggsave(p1, filename = "modulescore_DE.pdf", width = 3.5, height = 4)
 ```
+
+Although all components could be associated with diet,
+quantify to inspect which component is strongly associated with differential gene expression.
+
+```{r}
+library(dplyr)
+
+x = as.data.frame(t(coef(res)))
+x = x[, moduleindex, drop = FALSE]
+names(x) = paste0("Module ", 1:ncol(x))
+x$genename = sub("^Gene.", "", row.names(x))
+x = tidyr::pivot_longer(x,
+                        cols = matches("^Module \\d+", perl = TRUE),
+                        names_to = "factor",
+                        values_to = "score")
+data = resultcomparedGene %>%
+  dplyr::filter(celltype == tgtct)
+data = dplyr::inner_join(data, x, by = "genename")
+
+data %>%
+  dplyr::group_by(factor, sample) %>%
+  dplyr::summarize(
+    statpos = summary(lm(statistic^2 ~ score + 0,
+                         weights = score^2,
+                         subset = statistic > 0))$coefficients[3],
+    statneg = summary(lm(statistic^2 ~ score + 0,
+                         weights = score^2,
+                         subset = statistic < 0))$coefficients[3],
+    .groups = "drop")
+```
+
