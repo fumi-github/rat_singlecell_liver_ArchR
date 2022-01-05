@@ -857,3 +857,33 @@ data %>%
     .groups = "drop")
 ```
 
+## Stabilized regression
+
+UNDER CONSTRUCTION
+
+Do stably associated motifs `sr$results$SR$selection_probs > 0.9`
+tend to be in cis with the gene?
+Is StabilizedRegression better than GENIE3?
+
+```{r}
+library(StabilizedRegression)
+sr.Gene.Abcg1 = SRanalysis(t(assay(matnrDEMotif)), assay(matnrDEGene)["Gene.Abcg1", ], proj6$spdietcombined[match(colnames(matnrDEMotif), proj6$cellNames)], num_reps = 10, pars = list(prescreen_size = 20), cores = 4, verbose = 2, seed = 123)
+sr.Gene.Igfbp3 = SRanalysis(t(assay(matnrDEMotif)), assay(matnrDEGene)["Gene.Igfbp3", ], proj6$spdietcombined[match(colnames(matnrDEMotif), proj6$cellNames)], num_reps = 10, pars = list(prescreen_size = 20), cores = 4, verbose = 2, seed = 123)
+sr.Gene.Il1r1 = SRanalysis(t(assay(matnrDEMotif)), assay(matnrDEGene)["Gene.Il1r1", ], proj6$spdietcombined[match(colnames(matnrDEMotif), proj6$cellNames)], num_reps = 10, pars = list(prescreen_size = 20), cores = 4, verbose = 2, seed = 123)
+sr.Gene.Zfp37 = SRanalysis(t(assay(matnrDEMotif)), assay(matnrDEGene)["Gene.Zfp37", ], proj6$spdietcombined[match(colnames(matnrDEMotif), proj6$cellNames)], num_reps = 10, pars = list(prescreen_size = 20), cores = 4, verbose = 2, seed = 123)
+sr$varnames[sr$results$SR$selection_probs > 0.9]
+sr$varnames[sr$results$SR$selection_probs < 0.5 & sr$results$SRdiff$selection_probs > 0.9]
+saveRDS(sr.Gene.Abcg1, file = paste0("sr.Gene.Abcg1.", tgtct, ".rds"))
+```
+
+Run `addMotifAnnotations` in 8_MotifMatrix.Rmd
+
+```{r}
+foo = readRDS(proj6@peakAnnotation@listData$Motif$Positions)
+x = foo$Fos_104 # stable for Il1r1
+x = foo$Bach1_108 # stable for Il1r1
+x = foo$Nfkb1_701 # not stable for Il1r1
+# Il1r1
+x[seqnames(x) == "chr9" & abs(start(x) - 42540359) < 1e4, ]
+```
+
