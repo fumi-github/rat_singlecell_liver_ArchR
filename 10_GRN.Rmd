@@ -905,4 +905,42 @@ weightMatrix = GENIE3(
   verbose = TRUE)
 
 # saveRDS(weightMatrix, file = paste0("GENIE3_GeneGene.",  tgtct, ".rds"))
+weightMatrix = readRDS(paste0("GENIE3_GeneGene.",  tgtct, ".rds"))
+rownames(weightMatrix) = sub("^Gene.", "", rownames(weightMatrix))
+colnames(weightMatrix) = sub("^Gene.", "", colnames(weightMatrix))
 ```
+
+Clean noise.
+
+```{r}
+plot(quantile(weightMatrix, seq(0, 1, 0.01)))
+plot(quantile(weightMatrix, seq(1 - 1e-3, 1, 1e-5)))
+plot(quantile(weightMatrix, seq(1 - 1e-4, 1, 1e-6)))
+
+x = median(colQuantiles(weightMatrix, probs = 0.95))
+weightMatrix = weightMatrix - x
+weightMatrix[weightMatrix < 0] = 0
+
+plot(sort(rowMeans(weightMatrix)))
+```
+
+Find key genes for a target gene set.
+Load `gslists` from `9_GSEA.Rmd`.
+
+```{r}
+dbname = 'REACTOME'; gsname = 'REACTOME_CHOLESTEROL_BIOSYNTHESIS%%M16227'
+dbname = 'KEGG'; gsname = 'KEGG_APOPTOSIS%%M8492'
+gs = gslists[[ dbname ]][[ gsname ]]
+
+data = data.frame(
+  genename = rownames(weightMatrix),
+  score = rowSums(weightMatrix[, colnames(weightMatrix) %in% gs])
+)
+data = dplyr::left_join(data,
+                        as.data.frame(geneAnnotation$genes),
+                        by = c("genename" = "symbol"))
+t.test(data$score[data$genename %in% gs], data$score[! data$genename %in% gs])
+```
+
+The enrichment is weak.
+Was `nrow(matnrDEGene)` predictors too many for GENIE3?
