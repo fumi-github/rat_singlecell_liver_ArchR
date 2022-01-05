@@ -940,6 +940,7 @@ data = dplyr::left_join(data,
                         as.data.frame(geneAnnotation$genes),
                         by = c("genename" = "symbol"))
 t.test(data$score[data$genename %in% gs], data$score[! data$genename %in% gs])
+tail(data[order(data$score), ], 20)
 ```
 
 The enrichment is weak.
