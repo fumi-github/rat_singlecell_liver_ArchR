@@ -887,3 +887,22 @@ x = foo$Nfkb1_701 # not stable for Il1r1
 x[seqnames(x) == "chr9" & abs(start(x) - 42540359) < 1e4, ]
 ```
 
+# Multiple genes-to-one gene analysis
+
+Gene-gene regulation
+
+```{r}
+library(GENIE3)
+
+set.seed(123)
+weightMatrix = GENIE3(
+  rbind(
+    assay(matnrDEGene),
+    x),
+  targets = rownames(matnrDEGene),
+  regulators = c(rownames(matnrDEGene), rownames(x)),
+  nCores = 22,
+  verbose = TRUE)
+
+# saveRDS(weightMatrix, file = paste0("GENIE3_GeneGene.",  tgtct, ".rds"))
+```
