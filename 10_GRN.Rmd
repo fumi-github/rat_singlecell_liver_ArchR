@@ -889,6 +889,16 @@ x[seqnames(x) == "chr9" & abs(start(x) - 42540359) < 1e4, ]
 
 # Multiple genes-to-one gene analysis
 
+Include experimental condition as predictor.
+
+```{r}
+x = data.frame(
+  m154207 = (matnrDEGene$Sample == "m154207"),
+  m167203 = (matnrDEGene$Sample == "m167203"),
+  m168101 = (matnrDEGene$Sample == "m168101"))
+x = t(as.matrix(x) * 1)
+```
+
 Gene-gene regulation
 
 ```{r}
@@ -929,9 +939,17 @@ Load `gslists` from `9_GSEA.Rmd`.
 
 ```{r}
 dbname = 'REACTOME'; gsname = 'REACTOME_CHOLESTEROL_BIOSYNTHESIS%%M16227'
+dbname = 'GOBP'; gsname = 'GOBP_FATTY_ACID_METABOLIC_PROCESS%%M17829'
+dbname = 'KEGG'; gsname = 'KEGG_PPAR_SIGNALING_PATHWAY%%M13088'
+dbname = 'H'; gsname = 'HALLMARK_TNFA_SIGNALING_VIA_NFKB%%M5890'
 dbname = 'KEGG'; gsname = 'KEGG_APOPTOSIS%%M8492'
+dbname = 'GOBP'; gsname = 'GOBP_CELL_MIGRATION%%M40389'
+dbname = 'REACTOME'; gsname = 'REACTOME_EXTRACELLULAR_MATRIX_ORGANIZATION%%M610'
+dbname = 'GOBP'; gsname = 'GOBP_INSULIN_LIKE_GROWTH_FACTOR_RECEPTOR_SIGNALING_PATHWAY%%M12608'
 gs = gslists[[ dbname ]][[ gsname ]]
+```
 
+```{r}
 data = data.frame(
   genename = rownames(weightMatrix),
   score = rowSums(weightMatrix[, colnames(weightMatrix) %in% gs])
