@@ -1126,7 +1126,8 @@ sr = readRDS(paste0("sr_average.", tgtct, ".", gsname, ".", sw, ".", B, ".rds"))
 ```
 
 IF NOT WORKING, DELETE.
-Prescreen by correlation and stability
+Prescreen by correlation and stability.
+This could improve SR, but skew SRpred.
 
 ```{r}
 sr1 = StabilizedRegression(
