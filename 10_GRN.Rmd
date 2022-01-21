@@ -1096,28 +1096,6 @@ p1 =
 ggsave(p1, file = "predmods_stab_pval_stab_mse.pdf", width = 6, height = 6)
 ```
 
-TO BE DELETED
-The `sw` threshold is not well supported.
-
-```{r}
-# pc.hepato
-sw = 24 # REACTOME_CHOLESTEROL_BIOSYNTHESIS%%M16227
-sw = 20 # KEGG_APOPTOSIS%%M8492
-
-# average.hepato
-sw = 8 # REACTOME_CHOLESTEROL_BIOSYNTHESIS%%M16227
-sw = 14 # KEGG_APOPTOSIS%%M8492
-sw = 24 # GOBP_FATTY_ACID_METABOLIC_PROCESS%%M17829
-sw = 26 # KEGG_PPAR_SIGNALING_PATHWAY%%M13088
-sw = 16 # HALLMARK_TNFA_SIGNALING_VIA_NFKB%%M5890
-sw = 42 # GOBP_CELL_MIGRATION%%M40389
-sw = 20 # GOBP_INSULIN_LIKE_GROWTH_FACTOR_RECEPTOR_SIGNALING_PATHWAY%%M12608
-
-# average.stellate
-sw = 18 # GOBP_CELL_MIGRATION%%M40389
-sw = 18 # REACTOME_EXTRACELLULAR_MATRIX_ORGANIZATION%%M610
-```
-
 Actual run of stabilized regression
 
 ```{r}
