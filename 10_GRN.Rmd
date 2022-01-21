@@ -1019,22 +1019,6 @@ ggplot(data = as.data.frame(s$u),
   geom_text(aes(label = sub("^Gene.", "", rownames(x))))
 ```
 
-Useless!
-
-What is the "degree of freedom" that is inherent in `gslevel`?
-This could suggest an appropriate `size_weight` (see below).
-Find the log(lambda) where the gradient switches.
-Actually, no turning point.
-
-```{r}
-library(glmnet)
-require(doMC)
-registerDoMC(cores = 8)
-
-cvob = cv.glmnet(x = t(assay(matnrDEGene)), y = gslevel, parallel = TRUE)
-plot(cvob)
-```
-
 Stabilized regression with genes as independent variables and `gslevel` as dependent variable
 
 ```{r}
