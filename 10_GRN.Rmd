@@ -1224,10 +1224,29 @@ dbname = 'H'; gsname = 'HALLMARK_TNFA_SIGNALING_VIA_NFKB%%M5890'
 dbname = 'GOBP'; gsname = 'GOBP_RESPONSE_TO_CYTOKINE%%M15783'
 dbname = 'GOBP'; gsname = 'GOBP_ADAPTIVE_IMMUNE_RESPONSE%%M13847'
 dbname = 'KEGG'; gsname = 'KEGG_APOPTOSIS%%M8492'
+dbname = 'GOBP'; gsname = 'GOBP_APOPTOTIC_PROCESS%%M34075'
 dbname = 'GOBP'; gsname = 'GOBP_CELL_MIGRATION%%M40389'
 dbname = 'REACTOME'; gsname = 'REACTOME_EXTRACELLULAR_MATRIX_ORGANIZATION%%M610'
 dbname = 'GOBP'; gsname = 'GOBP_INSULIN_LIKE_GROWTH_FACTOR_RECEPTOR_SIGNALING_PATHWAY%%M12608'
 gs = gslists[[ dbname ]][[ gsname ]]
+```
+
+Load STRING protein-protein interaction with gs
+
+```{r}
+string = data.table::fread(
+  file = "~/human/publicrat/STRING/10116.protein.links.name.txt",
+  sep ="\t")
+string = string[string$protein1 != string$protein2, ]
+string = string[string$protein2 %in% gs, ]
+string = string %>%
+  # dplyr::filter(combined_score >= 0.4) %>%
+  dplyr::select(-c("protein2")) %>%
+  dplyr::group_by(protein1) %>%
+  dplyr::summarize(ppinteractionwithgs = sum(combined_score))
+
+t.test(string$ppinteractionwithgs[string$protein1 %in% gs], 
+       string$ppinteractionwithgs[! string$protein1 %in% gs])
 ```
 
 ## Differential expression
@@ -1318,7 +1337,11 @@ colnames(resultcompared)[colnames(resultcompared) == "p.value"] = "p"
 resultcompared$FDR = p.adjust(resultcompared$p, method = "BH")
 colnames(resultcompared)[colnames(resultcompared) == "response"] = "genename"
 resultcompared$ings = resultcompared$genename %in% paste0("Gene.", gs)
+```
 
+Volcano plot
+
+```{r}
 dataplot = resultcompared %>%
   dplyr::filter(ings)
 dataplot$log10p = log10(dataplot$p)
@@ -1338,6 +1361,39 @@ fig = ggplot(data = dataplot) +
     y = "-log10(P)")
 show(fig)
 ggsave("foo.pdf", fig, width = 6, height = 8)
+```
+
+Combine with ppinteractionwithgs
+
+```{r}
+dataplot = resultcompared
+
+dataplot$ppinteractionwithgs =
+  string$ppinteractionwithgs[
+    match(dataplot$genename, paste0("Gene.", string$protein1))]
+dataplot$ppinteractionwithgs[
+  is.na(dataplot$ppinteractionwithgs)] = 0
+
+dataplot$diffaccinteract = "DiffAcc_LowPPIGS"
+dataplot$diffaccinteract[
+  dataplot$ppinteractionwithgs >
+    quantile(dataplot$ppinteractionwithgs, 0.95)] = "DiffAcc_HighPPIGS"
+dataplot$diffaccinteract[
+  abs(dataplot$estimate) <= log2(1.1) |
+    dataplot$FDR >= 0.01] = "NotDiffAcc"
+dataplot$geneset2 = "Genes not in GS"
+dataplot$geneset2[dataplot$ings] = "Genes in GS"
+ggplot(
+  data = dataplot,
+  aes(x = statistic,
+      y = ppinteractionwithgs)) +
+  geom_point(aes(color = diffaccinteract),
+             size = 0.5) +
+  facet_grid(rows = vars(geneset2)) +
+  scale_color_manual(values = c("Red", "Blue", "Black")) +
+  labs(x = "Z-score for differential accessiblity",
+       y = "Total protein-protein interactions with GS",
+       title = paste0(gsname, "\n", tgtct))
 ```
 
 ## Co-regulation
