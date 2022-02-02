@@ -1100,8 +1100,8 @@ Actual run of stabilized regression
 
 ```{r}
 sw = round(sum(s$d^2) / s$d[1]^2)
-B = 1000
-# B = 5000
+# B = 1000
+B = 5000
 # B = round(prescreen_size^2 / ((sw+1)/2) / (((sw+1)/2)-1)) # for each variable pair, expect 1 set to include both
 
 sr = SRanalysis(
@@ -1119,7 +1119,7 @@ sr = SRanalysis(
 
 # saveRDS(sr, file = paste0("sr_pc.", tgtct, ".", gsname, ".", sw, ".rds"))
 # saveRDS(sr, file = paste0("sr_average.", tgtct, ".", gsname, ".", sw, ".rds"))
-saveRDS(sr, file = paste0("sr_average.", tgtct, ".", gsname, ".", sw, ".", B, ".rds"))
+# saveRDS(sr, file = paste0("sr_average.", tgtct, ".", gsname, ".", sw, ".", B, ".rds"))
 # sr = readRDS(paste0("sr_pc.", tgtct, ".", gsname, ".", sw, ".rds"))
 sr = readRDS(paste0("sr_average.", tgtct, ".", gsname, ".", sw, ".rds"))
 sr = readRDS(paste0("sr_average.", tgtct, ".", gsname, ".", sw, ".", B, ".rds"))
@@ -1166,8 +1166,8 @@ prescreened_genename =
 # dev.off()
 
 sw = round(sum(s$d^2) / s$d[1]^2)
-B = 1000
-# B = 5000
+# B = 1000
+B = 5000
 
 sr = SRanalysis(
   t(assay(matnrDEGene))[, prescreened_genename],
