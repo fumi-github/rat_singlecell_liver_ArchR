@@ -1207,3 +1207,291 @@ ggplot(
   stat_smooth(method = lm) +
   facet_grid(cols = vars(Sample))
 ```
+
+# Differential expression and co-regulation of a gene set
+
+For a given gene set, the following might be confused but are different:
+1. Genes that are differentially expressed among conditions
+2. "Core" genes in co-regulation, here defined as co-regulated with many other genes
+
+Load `gslists` from `9_GSEA.Rmd`.
+
+```{r}
+dbname = 'REACTOME'; gsname = 'REACTOME_CHOLESTEROL_BIOSYNTHESIS%%M16227'
+dbname = 'GOBP'; gsname = 'GOBP_FATTY_ACID_METABOLIC_PROCESS%%M17829'
+dbname = 'KEGG'; gsname = 'KEGG_PPAR_SIGNALING_PATHWAY%%M13088'
+dbname = 'H'; gsname = 'HALLMARK_TNFA_SIGNALING_VIA_NFKB%%M5890'
+dbname = 'GOBP'; gsname = 'GOBP_RESPONSE_TO_CYTOKINE%%M15783'
+dbname = 'GOBP'; gsname = 'GOBP_ADAPTIVE_IMMUNE_RESPONSE%%M13847'
+dbname = 'KEGG'; gsname = 'KEGG_APOPTOSIS%%M8492'
+dbname = 'GOBP'; gsname = 'GOBP_CELL_MIGRATION%%M40389'
+dbname = 'REACTOME'; gsname = 'REACTOME_EXTRACELLULAR_MATRIX_ORGANIZATION%%M610'
+dbname = 'GOBP'; gsname = 'GOBP_INSULIN_LIKE_GROWTH_FACTOR_RECEPTOR_SIGNALING_PATHWAY%%M12608'
+gs = gslists[[ dbname ]][[ gsname ]]
+```
+
+In the code block below, check if the genes in the gene set are co-regulated.
+In the next block, check if the expression level differs among diet conditions.
+In total, there are three points to check statistical significance.
+
+As a first attempt, use `matnrDEGene`, which should include less noise.
+If failed, try with `matnrGene`. (Really??)
+If also failed, discard the gene set.
+
+```{r}
+X = assay(matnrDEGene)
+A = proj6$spdietcombined[match(colnames(matnrDEGene), proj6$cellNames)]
+# X = assay(matnrGene)
+# A = proj6$spdietcombined[match(colnames(matnrGene), proj6$cellNames)]
+
+X = X - rowMeans(X)
+X = X / rowSds(X)
+A = as.factor(A)
+
+Xgs = X[rownames(X) %in% paste0("Gene.", gs), ]
+sXgs = svd(Xgs)
+
+set.seed(123)
+sXgsdnull = sapply(
+  1:100,
+  function (i) {
+    Xgspermute = X[sample(1:nrow(X), nrow(Xgs)), ]
+    return(svd(Xgspermute)$d)
+  })
+
+# Check if first element attains P < 0.05
+head(rowMeans(sXgsdnull > sXgs$d))
+
+# Check if first element is much larger than the remaining.
+# If not, the gene set is heterogeneous, and discarded.
+plot(sXgs$d)
+
+# dataplot = as.data.frame(sXgs$u)
+# dataplot$genename = rownames(Xgs)
+# ggplot(data = dataplot,
+#        aes(x = V1, y = V2)) +
+#   geom_text(
+#     aes(
+#       label = sub("^Gene.", "", genename)))
+```
+
+For the 1st principal component computed above, check if diet conditions differ.
+If so, compute the average expression level `gslevel` of the gene set in each condition.
+
+```{r}
+plot(A, sXgs$v[, 1])
+a0 = lm(sXgs$v[, 1] ~ A)
+# Check significance
+anova(a0)
+
+x = tapply(sXgs$v[, 1], A, mean)
+x = x[A]
+x = x - mean(x)
+# rescale to sd = 0.5 (as in the typical scenario where half are zero and half are one)
+gslevel = x / sd(x) / 2 
+names(gslevel) = colnames(X)
+
+tapply(gslevel, A, mean)
+ggplot(data = data.frame(
+  A = levels(A),
+  gslevel = tapply(gslevel, A, mean)),
+  aes (x = A,
+       y = gslevel)) +
+  geom_col() +
+  labs(x = NULL,
+       y = "Relative expression level of gene set")
+```
+
+Differential gene expression against `gslevel`
+
+```{r}
+identical(colnames(matnrGene), names(gslevel))
+resultcompared = broom::tidy(
+  lm(y ~ x,
+     data = list(
+       y = t(assay(matnrGene)),
+       x = gslevel)))
+resultcompared = resultcompared[resultcompared$term == "x", ]
+colnames(resultcompared)[colnames(resultcompared) == "p.value"] = "p"
+resultcompared$FDR = p.adjust(resultcompared$p, method = "BH")
+colnames(resultcompared)[colnames(resultcompared) == "response"] = "genename"
+resultcompared$ings = resultcompared$genename %in% paste0("Gene.", gs)
+
+dataplot = resultcompared %>%
+  dplyr::filter(ings)
+dataplot$log10p = log10(dataplot$p)
+x = is.infinite(dataplot$log10p)
+dataplot$log10p[x] = min(dataplot$log10p[! x])
+
+fig = ggplot(data = dataplot) +
+  geom_point(
+    aes(x = 2^estimate,
+        y = - log10p,
+        col = statistic),
+    size = 0.3) +
+  scale_x_log10() +
+  scale_color_gradient2(low = "blue", mid = "black", high = "red", midpoint = 0) + # TODO IMPROVE
+  labs(
+    x = "Fold change",
+    y = "-log10(P)")
+show(fig)
+ggsave("foo.pdf", fig, width = 6, height = 8)
+```
+
+To find "core" genes in co-regulation, we analyze co-regulation with diet/condition.
+Use `matnrDEGene`, which should include less noise.
+
+```{r}
+# X = assay(matnrGene)
+# A = proj6$spdietcombined[match(colnames(matnrGene), proj6$cellNames)]
+X = assay(matnrDEGene)
+A = proj6$spdietcombined[match(colnames(matnrDEGene), proj6$cellNames)]
+
+X = X - rowMeans(X)
+A = as.factor(A)
+Alist = lapply(unique(A), function(a) which(A == a))
+
+# Y = within environment dispersion
+# Z = between environment dispersion
+Z = X * 0
+for (ind in Alist) {
+  m = rowMeans(X[, ind])
+  Z[, ind] = m
+  rm(m)
+}
+Y = X - Z
+Y = Y / rowSds(Y)
+```
+
+Plot the first few principal components.
+
+```{r}
+Ygs = Y[rownames(Y) %in% paste0("Gene.", gs), ]
+Ygs = Ygs[rownames(Ygs) != "Gene.Il1b", ]  # Next to Gene.Il1a;  KEGG_APOPTOSIS%%M8492
+Ygs = Ygs[rownames(Ygs) != "Gene.Birc2", ] # Next to Gene.Birc3; KEGG_APOPTOSIS%%M8492
+sYgs = svd(Ygs)
+
+set.seed(123)
+sYgsdnull = sapply(
+  1:100,
+  function (i) {
+    Ygspermute = Y[sample(1:nrow(Y), nrow(Ygs)), ]
+    return(svd(Ygspermute)$d)
+  })
+
+# Do the first few element attains P < 0.05 ?
+# From a descriptive statistics viewpoint, we don't care.
+head(rowMeans(sYgsdnull > sYgs$d))
+plot(sYgs$d)
+
+dataplot = as.data.frame(sYgs$u)
+dataplot$genename = rownames(Ygs)
+dataplot$statistic = resultcompared$statistic[match(dataplot$genename, resultcompared$genename)]
+
+# Are there new genes not in gs?  Not really.
+quantile(sYgs$u - Ygs %*% sYgs$v %*% diag(1 / sYgs$d), c(0, 1))
+dataplot = as.data.frame(Y %*% sYgs$v %*% diag(1 / sYgs$d))
+dataplot$genename = rownames(dataplot)
+dataplot$statistic = resultcompared$statistic[match(dataplot$genename, resultcompared$genename)]
+
+ggplot(data = dataplot,
+       aes(x = V1, y = V2)) +
+  geom_text(
+    aes(
+      label = sub("^Gene.", "", genename),
+      col = statistic),
+    size = 3) +
+  scale_color_gradient2(low = "blue", mid = "black", high = "red", midpoint = 0) + # TODO IMPROVE
+  labs(x = paste0("PC 1 (", sprintf("%.3f", sYgs$d[1]^2 / sum(sYgs$d^2)), " of total variance)" ),
+       y = paste0("PC 2 (", sprintf("%.3f", sYgs$d[2]^2 / sum(sYgs$d^2)), " of total variance)" ))
+```
+
+## GENIE3
+
+Gene-gene regulation
+
+```{r}
+library(GENIE3)
+
+set.seed(123)
+weightMatrix = GENIE3(
+  Ygs,
+  nCores = 22,
+  verbose = TRUE)
+
+# saveRDS(weightMatrix, file = paste0("GENIE3_GeneGene.",  tgtct, ".", gsname, ".rds"))
+weightMatrix = readRDS(paste0("GENIE3_GeneGene.",  tgtct, ".", gsname, ".rds"))
+rownames(weightMatrix) = sub("^Gene.", "", rownames(weightMatrix))
+colnames(weightMatrix) = sub("^Gene.", "", colnames(weightMatrix))
+
+heatmap(weightMatrix, Rowv = NA, Colv = NA, scale = "none", cexRow = 0.5, cexCol = 0.5)
+```
+
+Clean noise.
+
+```{r}
+plot(sort(as.numeric(weightMatrix)))
+# x = median(colQuantiles(weightMatrix, probs = 0.95))
+x = median(
+  apply(
+    weightMatrix,
+    2,
+    function (x) sort(x, decreasing = TRUE)[3])) # keep top 3 regulators
+abline(a = x, b = 0)
+weightMatrix = weightMatrix - x
+weightMatrix[weightMatrix < 0] = 0
+
+heatmap(weightMatrix, Rowv = NA, Colv = NA, scale = "none", cexRow = 0.5, cexCol = 0.5)
+heatmap(1*(weightMatrix>0), Rowv = NA, Colv = NA, scale = "none", cexRow = 0.5, cexCol = 0.5)
+plot(sort(rowMeans(weightMatrix)))
+plot(sort(rowMeans(weightMatrix > 0)))
+tail(sort(rowMeans(weightMatrix)))
+tail(sort(rowMeans(weightMatrix > 0)))
+tail(sort(colMeans(weightMatrix)))
+tail(sort(colMeans(weightMatrix > 0)))
+plot(rowMeans(weightMatrix), rowMeans(weightMatrix > 0)) # diagonal
+plot(colMeans(weightMatrix), colMeans(weightMatrix > 0)) # no
+```
+
+
+```{r}
+library(igraph)
+links = data.frame(
+  source = rep(rownames(weightMatrix), times = ncol(weightMatrix)),
+  target = rep(colnames(weightMatrix), each = nrow(weightMatrix)),
+  weight = as.numeric(weightMatrix))
+links = links[links$weight > 0, ]
+nodes = data.frame(
+    name = unique(c(links$source, links$target)))
+nodes$statistic = resultcompared$statistic[
+  match(paste0("Gene.", nodes$name), resultcompared$genename)]
+# nodes$color = gray(
+#   (nodes$statistic - min(nodes$statistic)) /
+#     (max(nodes$statistic) - min(nodes$statistic)))
+nodes$color = rgb(
+  1 + (nodes$statistic / max(abs(nodes$statistic))) * (nodes$statistic < 0),
+  1 - (nodes$statistic / max(abs(nodes$statistic))) * (nodes$statistic > 0),
+  1 - (nodes$statistic / max(abs(nodes$statistic))) * (nodes$statistic > 0))
+# nodes$outdegree = rowSums(weightMatrix)[nodes$name]
+# nodes$outdegree = nodes$outdegree / max(nodes$outdegree)
+# outdegree = rowSums(weightMatrix)
+outdegree = rowSums(weightMatrix > 0)
+outdegree = outdegree / max(outdegree)
+
+network = graph_from_data_frame(d = links, vertices = nodes, directed = TRUE)
+plot(network)
+set.seed(123)
+plot(network,
+     # edge.width = rank(E(network)$weight)/30,
+     # edge.width = E(network)$weight * 100,
+     # vertex.size = eigen_centrality(network)$vector * 10 + 5,
+     vertex.size = outdegree[V(network)$name] * 10 + 5,
+     vertex.frame.color = NA,
+     edge.curved = 0.3,
+     edge.arrow.size = 0.6,
+     layout=layout_with_dh)
+  # layout=layout_with_gem)
+  # layout=layout_with_graphopt)
+  # layout=layout_with_lgl)
+```
+
