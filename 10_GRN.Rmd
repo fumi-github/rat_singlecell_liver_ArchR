@@ -1230,6 +1230,8 @@ dbname = 'GOBP'; gsname = 'GOBP_INSULIN_LIKE_GROWTH_FACTOR_RECEPTOR_SIGNALING_PA
 gs = gslists[[ dbname ]][[ gsname ]]
 ```
 
+## Differential expression
+
 In the code block below, check if the genes in the gene set are co-regulated.
 In the next block, check if the expression level differs among diet conditions.
 In total, there are three points to check statistical significance.
@@ -1338,7 +1340,9 @@ show(fig)
 ggsave("foo.pdf", fig, width = 6, height = 8)
 ```
 
-To find "core" genes in co-regulation, we analyze co-regulation with diet/condition.
+## Co-regulation
+
+To find "core" genes in co-regulation, we analyze co-regulation within diet/condition.
 Use `matnrDEGene`, which should include less noise.
 
 ```{r}
@@ -1361,14 +1365,17 @@ for (ind in Alist) {
 }
 Y = X - Z
 Y = Y / rowSds(Y)
-```
 
-Plot the first few principal components.
-
-```{r}
 Ygs = Y[rownames(Y) %in% paste0("Gene.", gs), ]
 Ygs = Ygs[rownames(Ygs) != "Gene.Il1b", ]  # Next to Gene.Il1a;  KEGG_APOPTOSIS%%M8492
 Ygs = Ygs[rownames(Ygs) != "Gene.Birc2", ] # Next to Gene.Birc3; KEGG_APOPTOSIS%%M8492
+```
+
+## Co-regulation; PCA
+
+Plot first few principal components.
+
+```{r}
 sYgs = svd(Ygs)
 
 set.seed(123)
@@ -1406,7 +1413,7 @@ ggplot(data = dataplot,
        y = paste0("PC 2 (", sprintf("%.3f", sYgs$d[2]^2 / sum(sYgs$d^2)), " of total variance)" ))
 ```
 
-## GENIE3
+## Co-regulation; GENIE3
 
 Gene-gene regulation
 
@@ -1453,6 +1460,7 @@ plot(rowMeans(weightMatrix), rowMeans(weightMatrix > 0)) # diagonal
 plot(colMeans(weightMatrix), colMeans(weightMatrix > 0)) # no
 ```
 
+Represent regulatory relation in directed graph.
 
 ```{r}
 library(igraph)
