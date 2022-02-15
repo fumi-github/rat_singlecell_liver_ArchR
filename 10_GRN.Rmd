@@ -899,56 +899,7 @@ p1 =
   labs(title = tgtct,
        x = NULL)
 show(p1)
-```
-
-Recompute and visualize for double check.
-
-```{r}
-pvalues =
-  t(apply(
-    dbnamegsname,
-    1,
-    function (a) {
-      gs = gslists[[ a[1] ]][[ a[2] ]]
-      x = as.data.frame(t(coef(res)))
-      ings = (rownames(x) %in% paste0("Gene.", gs))
-      if (min(sum(ings), sum(! ings)) < 5) {
-        return(rep(NA, ncol(x)))
-      } else {
-        return(sapply(
-          1:ncol(x),
-          function (i) {
-            t.test(x[ings, i], x[! ings, i], alternative = "greater", var.equal = TRUE)$p.value
-          }
-        ))
-      }
-    }
-  ))
-pvalues = pvalues[, moduleindex, drop = FALSE]
-
-dataplot = as.data.frame(pvalues)
-names(dataplot) =  paste0("Module ", 1:ncol(dataplot))
-dataplot$gsname = factor(dbnamegsname$gsname, levels = dbnamegsname$gsname)
-dataplot = tidyr::pivot_longer(dataplot,
-                               cols = matches("^Module \\d+", perl = TRUE),
-                               names_to = "factor",
-                               values_to = "P")
-p1 =
-  ggplot(dataplot,
-         aes(x = gsname,
-             y = - log10(P))) +
-  geom_bar(stat = "identity",
-           aes(fill = (P < 0.05 / nrow(pvalues) / ncol(pvalues)))) +
-  scale_fill_manual(values = c("gray50", "black")) +
-  guides(fill = "none") +
-  facet_grid(rows = vars(factor)) +
-  theme(axis.text.x = element_text(angle = 90,
-                                   hjust = 1,
-                                   vjust = 0.5,
-                                   size = rel(0.3))) +
-  labs(title = tgtct,
-       x = NULL)
-ggsave(p1, filename = "modulescore_GSEA.Gene.pdf", width = 3, height = 5)
+# ggsave(p1, filename = "modulescore_GSEA.Gene.pdf", width = 3, height = 5)
 ```
 
 ## Visualize NMF VarianceImportance vs differential expression
