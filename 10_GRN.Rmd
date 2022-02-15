@@ -695,36 +695,215 @@ NMF::aheatmap(
   filename = "NMF.heatmap.pdf", width = 5, height = 5)
 ```
 
-Gene set enrichment analysis for factors of the genes.
+## Gene set enrichment analysis for factors (modules) of the genes
+
 Load `gslists` from `9_GSEA.Rmd`.
 
 ```{r}
+x = as.data.frame(t(coef(res)))
+row.names(x) = sub("^Gene.", "", row.names(x))
+set.seed(123)
+result =
+  lapply(
+    1:ncol(x),
+    function (j) {
+      print(j)
+      lapply(
+        gslists,
+        function (gslist) {
+          gslistresult =
+            do.call(
+              rbind,
+              lapply(
+                gslist,
+                function (gs) {
+                  ings = (row.names(x) %in% gs)
+                  if (min(sum(ings), sum(! ings)) < 5) {
+                    return(data.frame(statistic = NA, p.value = NA))
+                  } else {
+                    return(
+                      as.data.frame(
+                        t.test(
+                          x[ings, j],
+                          x[! ings, j],
+                          alternative = "greater",
+                          var.equal = TRUE)[c("statistic", "p.value")]))
+                  }}))
+          statisticnull =
+            sapply(
+              1:100,
+              function (i) {
+                sapply(
+                  gslist,
+                  function (gs) {
+                    ings = (row.names(x) %in% gs)[sample(nrow(x))]
+                    if (min(sum(ings), sum(! ings)) < 5) {
+                      return(NA)
+                    } else {
+                      return(
+                        t.test(
+                          x[ings, j],
+                          x[! ings, j],
+                          alternative = "greater",
+                          var.equal = TRUE)$statistic)
+                    }})
+              })
+          statisticnull = colMaxs(statisticnull, na.rm = TRUE)
+          gslistresult$fwe =
+            sapply(
+              gslistresult$statistic,
+              function (s) { mean(s <= statisticnull) })
+          return(gslistresult)
+        })
+    })
+# saveRDS(result, file = paste0("GENIE3.NMF.rank", r, ".", tgtct, ".GSEA.rds"))
+result = readRDS(paste0("GENIE3.NMF.rank", r, ".", tgtct, ".GSEA.rds"))
+```
+
+## Inspect enriched gene sets
+
+When there are too many gene sets attaining family-wise error rate (fwe) < 0.05,
+visualize and choose representatives by using Cytoscape:
+1. Apps > EnrichmentMap. Import GMT file `foo.gmt`
+2. Node Table. Import `foo.txt` and add column log10P
+3. Style > Fill Color > Map. Column = log10Ppadog. Mapping Type = Continuous Mapping
+4. [Optional] Apps > clusterMaker > MCODE Cluster. Create new clustered network
+5. Layout > yFiles Radial Layout
+
+Generate files to be loaded to Cytoscape.
+
+```{r}
+j = 1
+data = result[[j]]
+data = data[c(1:7, 9)]
+data = do.call(rbind, data)
+data$Name = rownames(data)
+datafwe005 = data[!is.na(data$fwe) & data$fwe < 0.05, ]
+datafwe005$log10P = log10(datafwe005$p.value)
+datafwe005 = datafwe005[order(datafwe005$p.value), ]
+datafwe005
+datafwe005[order(datafwe005$Name), ]
+datafwe005$Name2 = sub("[^.]*\\.", "", datafwe005$Name, perl = TRUE)
+write.table(
+  datafwe005[, c("Name2", "log10P")],
+  file = "foo.txt",
+  row.names = FALSE,
+  col.names = TRUE,
+  sep = "\t",
+  quote = FALSE)
+
+output = do.call(c, gslists)
+output = output[datafwe005$Name]
+output = lapply(output, function (x) { paste0(x, collapse = "\t") })
+x = names(output)
+x = sub("[^.]*\\.", "", x, perl = TRUE)
+output = paste(
+  x,
+  sub("%.*", "", x),
+  unlist(output),
+  sep = "\t")
+cat(output, file = "foo.gmt", sep = "\n")
+```
+
+Gene sets of interest are handpicked and sorted by biological process.
+
+```{r}
+# * indicates "not significant in diet comparison"
 dbnamegsname = rbind(
   data.frame(dbname = 'GOBP', gsname = 'GOBP_STEROID_METABOLIC_PROCESS%%M16758'),
   data.frame(dbname = 'REACTOME', gsname = 'REACTOME_CHOLESTEROL_BIOSYNTHESIS%%M16227'),
   data.frame(dbname = 'REACTOME', gsname = 'REACTOME_REGULATION_OF_CHOLESTEROL_BIOSYNTHESIS_BY_SREBP_SREBF%%M27001'),
   data.frame(dbname = 'GOBP', gsname = 'GOBP_FATTY_ACID_METABOLIC_PROCESS%%M17829'),
   data.frame(dbname = 'GOBP', gsname = 'GOBP_LIPID_STORAGE%%M15541'),
-  # data.frame(dbname = 'REACTOME', gsname = 'REACTOME_CHOLINE_CATABOLISM%%M27619'), # small gene set
   data.frame(dbname = 'KEGG', gsname = 'KEGG_PPAR_SIGNALING_PATHWAY%%M13088'),
   data.frame(dbname = 'H', gsname = 'HALLMARK_XENOBIOTIC_METABOLISM%%M5934'),
+  data.frame(dbname = 'GOBP', gsname = 'GOBP_INSULIN_LIKE_GROWTH_FACTOR_RECEPTOR_SIGNALING_PATHWAY%%M12608'),
+  
   data.frame(dbname = 'H', gsname = 'HALLMARK_TNFA_SIGNALING_VIA_NFKB%%M5890'),
   data.frame(dbname = 'GOBP', gsname = 'GOBP_CYTOKINE_PRODUCTION%%M13156'),
   data.frame(dbname = 'GOBP', gsname = 'GOBP_RESPONSE_TO_CYTOKINE%%M15783'),
   data.frame(dbname = 'REACTOME', gsname = 'REACTOME_INTERLEUKIN_1_SIGNALING%%M27895'),
+  data.frame(dbname = 'H', gsname = 'HALLMARK_IL2_STAT5_SIGNALING%%M5947'), # *
+  data.frame(dbname = 'H', gsname = 'HALLMARK_IL6_JAK_STAT3_SIGNALING%%M5897'),
   data.frame(dbname = 'REACTOME', gsname = 'REACTOME_INTERLEUKIN_10_SIGNALING%%M27605'),
   data.frame(dbname = 'REACTOME', gsname = 'REACTOME_INFLAMMASOMES%%M1072'),
   data.frame(dbname = 'GOBP', gsname = 'GOBP_ADAPTIVE_IMMUNE_RESPONSE%%M13847'),
+  data.frame(dbname = 'REACTOME', gsname = 'REACTOME_CREATION_OF_C4_AND_C2_ACTIVATORS%%M1078'), # *
+  data.frame(dbname = 'GOBP', gsname = 'GOBP_MYELOID_LEUKOCYTE_ACTIVATION%%M12762'),
+  data.frame(dbname = 'KEGG', gsname = 'KEGG_HEMATOPOIETIC_CELL_LINEAGE%%M6856'), # *
+  data.frame(dbname = 'WIKIPATHWAYS', gsname = 'WP_ONCOSTATIN_M_SIGNALING_PATHWAY%%M39562'),
+  
   data.frame(dbname = 'KEGG', gsname = 'KEGG_APOPTOSIS%%M8492'),
+  data.frame(dbname = 'H', gsname = 'HALLMARK_APOPTOSIS%%M5902'), # *
+  
   data.frame(dbname = 'GOBP', gsname = 'GOBP_ACTIN_FILAMENT_BASED_PROCESS%%M9082'),
   data.frame(dbname = 'GOBP', gsname = 'GOBP_CELL_MIGRATION%%M40389'),
-  data.frame(dbname ="REACTOME", gsname = "REACTOME_EXTRACELLULAR_MATRIX_ORGANIZATION%%M610"), # not significant in whole analysis
-  data.frame(dbname = 'GOBP', gsname = 'GOBP_INSULIN_LIKE_GROWTH_FACTOR_RECEPTOR_SIGNALING_PATHWAY%%M12608'))
+  # stellate
+  data.frame(dbname ="REACTOME", gsname = "REACTOME_EXTRACELLULAR_MATRIX_ORGANIZATION%%M610"), # *
+  data.frame(dbname = 'GOBP', gsname = 'GOBP_SEMAPHORIN_PLEXIN_SIGNALING_PATHWAY%%M15378'), # *
+  data.frame(dbname = 'H', gsname = 'HALLMARK_TGF_BETA_SIGNALING%%M5896'), # *
+  # endothelial
+  data.frame(dbname = 'WIKIPATHWAYS', gsname = 'WP_VEGFAVEGFR2_SIGNALING_PATHWAY%%M39729'), # *
   
-#   data.frame(dbname ="GOBP", gsname = "GOBP_CELLULAR_AMINO_ACID_METABOLIC_PROCESS%%M9857"),
-#   data.frame(dbname ="REACTOME", gsname = "REACTOME_METABOLISM_OF_AMINO_ACIDS_AND_DERIVATIVES%%M727")
-# )
+  data.frame(dbname = 'H', gsname = 'HALLMARK_MITOTIC_SPINDLE%%M5893'), # *
+  data.frame(dbname = 'H', gsname = 'HALLMARK_KRAS_SIGNALING_UP%%M5953'), # *
+  data.frame(dbname = 'H', gsname = 'HALLMARK_PI3K_AKT_MTOR_SIGNALING%%M5923'), # *
 
+  data.frame(dbname = 'WIKIPATHWAYS', gsname = 'WP_FARNESOID_X_RECEPTOR_PATHWAY%%M39411'), # *
+  data.frame(dbname = 'GOBP', gsname = 'GOBP_GLUTAMINE_FAMILY_AMINO_ACID_BIOSYNTHETIC_PROCESS%%M10295') # *
+)
+```
+
+Visualize GSEA results.
+
+```{r}
+dataplot = lapply(result[moduleindex], function (x) do.call(rbind, x))
+dataplot = lapply(dataplot, function (x) x[paste0(dbnamegsname$dbname, ".", dbnamegsname$gsname), ])
+
+x = do.call(cbind, lapply(dataplot, function (x) x[, "p.value", drop = FALSE]))
+names(x) =  paste0("Module ", 1:ncol(x))
+x$gsname = factor(rownames(x), levels = rownames(x))
+dataplot.P = x
+x = do.call(cbind, lapply(dataplot, function (x) x[, "fwe", drop = FALSE]))
+names(x) =  paste0("Module ", 1:ncol(x))
+significant = (rowSums(is.na(x)) == 0) & (rowMins(as.matrix(x), na.rm = TRUE) < 0.05)
+x$gsname = factor(rownames(x), levels = rownames(x))
+dataplot.fwe = x
+dataplot.P = dataplot.P[significant, , drop = FALSE]
+dataplot.fwe = dataplot.fwe[significant, , drop = FALSE]
+
+dataplot.P = tidyr::pivot_longer(dataplot.P,
+                                 cols = matches("^Module \\d+", perl = TRUE),
+                                 names_to = "factor",
+                                 values_to = "P")
+dataplot.fwe = tidyr::pivot_longer(dataplot.fwe,
+                                   cols = matches("^Module \\d+", perl = TRUE),
+                                   names_to = "factor",
+                                   values_to = "fwe")
+dataplot =
+  dplyr::left_join(dataplot.P, dataplot.fwe, by = c("gsname", "factor"))
+
+p1 =
+  ggplot(dataplot,
+         aes(x = gsname,
+             y = - log10(P))) +
+  geom_bar(stat = "identity",
+           aes(fill = (fwe < 0.05))) +
+  scale_fill_manual(values = c("gray50", "black")) +
+  guides(fill = "none") +
+  facet_grid(rows = vars(factor)) +
+  theme(axis.text.x = element_text(angle = 90,
+                                   hjust = 1,
+                                   vjust = 0.5,
+                                   size = rel(0.4))) +
+  labs(title = tgtct,
+       x = NULL)
+show(p1)
+```
+
+Recompute and visualize for double check.
+
+```{r}
 pvalues =
   t(apply(
     dbnamegsname,
