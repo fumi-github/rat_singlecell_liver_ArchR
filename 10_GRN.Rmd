@@ -529,6 +529,8 @@ basismap(res)
 
 # Multiple motifs-to-one gene analysis
 
+## Compute regulatory motifs by using GENIE3
+
 Include experimental condition as predictor.
 
 ```{r}
@@ -583,7 +585,7 @@ weightMatrix = weightMatrix[, colMaxs(weightMatrix) > 0]
 plot(hclust(dist(weightMatrix)))
 ```
 
-Nonnegative matrix factorization
+## Nonnegative matrix factorization of regulator-regulatee matrix
 
 To choose the optimal value of r, first try 1; if not clear try 2.
 1. (Hutchins2008) suggested to choose the first value where the RSS curve presents an inflection point, and (Frigyesi2008) considered the value of r after which the decrease in the RSS becomes lower than the decrease of the RSS obtained from random data.
@@ -770,7 +772,7 @@ p1 =
 ggsave(p1, filename = "modulescore_GSEA.Gene.pdf", width = 3, height = 5)
 ```
 
-Visualize NMF of VarianceImportance vs differential expression.
+## Visualize NMF VarianceImportance vs differential expression
 
 ```{r}
 # Run this for Motif
