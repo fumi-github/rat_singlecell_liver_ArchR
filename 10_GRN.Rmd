@@ -989,6 +989,205 @@ data %>%
     .groups = "drop")
 ```
 
+## SVD based on weighting by NMF factors (modules)
+
+GENIE3 and NMF quantify the importance of genes/motifs as variance.
+To infer the "directionality", we perform SVD by incorporating the variance as weight.
+
+```{r}
+A = proj6$spdietcombined[match(colnames(matnrDEGene), proj6$cellNames)]
+A = as.factor(A)
+```
+
+Compute weight.
+
+```{r}
+x = t(coef(res))
+x = x %*% diag(1 / colMeans(x))
+x = sqrt(x) # convert from var to sd
+
+wGene = x[match(rownames(matnrDEGene), row.names(x)), ]
+wGene[is.na(wGene)] = 0
+rownames(wGene) = rownames(matnrDEGene)
+
+x = basis(res)
+x = x %*% diag(1 / colMeans(x))
+x = sqrt(x) # convert from var to sd
+
+wMotif = x[match(rownames(matnrDEMotif), row.names(x)), ]
+wMotif[is.na(wMotif)] = 0
+rownames(wMotif) = rownames(matnrDEMotif)
+```
+
+Weighted SVD.
+
+```{r}
+identical(colnames(matnrDEGene), colnames(matnrDEMotif))
+
+XGene = assay(matnrDEGene)
+XGene = XGene - rowMeans(XGene)
+XGene = XGene / rowSds(XGene)
+
+XMotif = assay(matnrDEMotif)
+XMotif = XMotif - rowMeans(XMotif)
+XMotif = XMotif / rowSds(XMotif)
+
+set.seed(123)
+sXgslist = lapply(
+  1:dim(res)[3],
+  function (i) {
+    irlba::irlba(rbind(XGene * wGene[, i], XMotif * wMotif[, i]))
+  })
+
+# For each factor, check if first element is much larger than the remaining.
+# If not, the gene set is heterogeneous, which could be OK.
+lapply(
+  sXgslist,
+  function (x) x$d)
+```
+SVD with permuted weight.
+Check if the weighted genes are co-regulated more than randomly chosen genes (ie more than "average").
+The permutation of wGene, wMotif is an interesting procedure,
+however the corresponding null hypothesis does not seem to be justifiable.
+
+```{r}
+set.seed(123)
+sXgsnull = sapply(
+  1:dim(res)[3],
+  function (i) { # factor
+    print(i)
+    sapply(
+      1:100,
+      function (j) { # permutation trial
+        x = irlba::irlba(rbind(XGene * wGene[sample(nrow(wGene)), i],
+                               XMotif * wMotif[sample(nrow(wMotif)), i]))
+        cbind(
+          data.frame(
+            d1 = x$d[1],
+            maxabsu1Gene = max(abs(x$u[1:nrow(wGene), 1])),
+            maxabsu1Motif = max(abs(x$u[nrow(wGene) + 1:nrow(wMotif), 1])),
+            maxabsscore1Gene = max(abs(x$u[1:nrow(wGene), 1] * x$d[1])),
+            maxabsscore1Motif = max(abs(x$u[nrow(wGene) + 1:nrow(wMotif), 1] * x$d[1]))),
+          as.data.frame(as.list(abs(tapply(x$v[, 1], A, mean)))))
+      })
+  },
+  simplify = "array")
+
+# For each NMF factor, check if first SVD component attains P < 0.05
+lapply(
+  1:dim(res)[3],
+  function (i) {
+    mean(as.numeric(sXgsnull["d1", , i]) > sXgslist[[i]]$d[1])
+  })
+```
+
+SVD direction for plotting.
+
+```{r}
+# hepato
+sXgssign = c(1, -1, -1, 1)
+# stellate
+sXgssign = c(-1, -1, 1, 1)
+# endothelial
+sXgssign = c(-1, -1, -1)
+# myelo
+sXgssign = c(1, -1, 1, 1)
+# T_NK
+sXgssign = c(1, -1, 1)
+```
+
+Major Genes/Motifs for each NMF factor.
+
+```{r}
+lapply(
+  1:dim(res)[3],
+  function (i) {
+    x = sXgslist[[i]]$u[1:nrow(XGene), 1] * sXgslist[[i]]$d[1]
+    names(x) = row.names(XGene)
+    fwe =
+      sapply(x, function (xi) {
+        mean(abs(xi) < as.numeric(sXgsnull["maxabsscore1Gene", , i])) })
+    x = x * sXgssign[i]
+    x = c(head(sort(x), 5), tail(sort(x), 5))
+    fwe = fwe[names(x)]
+    dataplot = data.frame(
+      order = 1:length(x),
+      score = x,
+      fwe = fwe,
+      name = sub("^Gene.", "", names(x)),
+      type = "Gene",
+      module = paste0("Module ", which(moduleindex == i)))
+    
+    x = sXgslist[[i]]$u[nrow(XGene) + 1:nrow(XMotif), 1] * sXgslist[[i]]$d[1]
+    names(x) = row.names(XMotif)
+    fwe =
+      sapply(x, function (xi) {
+        mean(abs(xi) < as.numeric(sXgsnull["maxabsscore1Motif", , i])) })
+    x = x * sXgssign[i]
+    x = c(head(sort(x), 5), tail(sort(x), 5))
+    fwe = fwe[names(x)]
+    dataplot = rbind(
+      dataplot,
+      data.frame(
+        order = 1:length(x),
+        score = x,
+        fwe = fwe,
+        name = sub("^Motif.", "", names(x)),
+        type = "Motif",
+        module = paste0("Module ", which(moduleindex == i))))
+    
+    dataplot$type = factor(dataplot$type, levels = c("Motif", "Gene"))
+    p1 =
+      ggplot(data = dataplot,
+             aes(x = order,
+                 y = score)) +
+      geom_col(aes(fill = fwe < 0.05)) +
+      scale_fill_manual(values = c("gray50", "black")) +
+      guides(fill = "none") +
+      geom_text(aes(label = name, y = - sign(score), hjust = -0.5 * sign(score) + 0.5), angle = -90) +
+      theme(
+        axis.ticks.x = element_blank(),
+        axis.text.x = element_blank(),
+        axis.title.x = element_blank()) +
+      labs(y = "Principal component score") +
+      facet_grid(rows = vars(module), cols = vars(type))
+    ggsave(p1,
+           filename = paste0("GENIE3.NMF.rank", dim(res)[3], ".", tgtct, ".PCA.", i, ".pdf"),
+           width = 5, height = 2)
+    p1
+  })
+```
+Relative expression level of diets, for each NMF factor.
+
+```{r}
+dataplot =
+  do.call(
+    rbind,
+    lapply(
+      1:dim(res)[3],
+      function (i) {
+        x = tapply(sXgslist[[i]]$v[, 1], A, mean)
+        P = rowMeans(sXgsnull[levels(A), , i] > abs(as.numeric(x)))
+        data.frame(
+          diet = names(x),
+          level = x * sqrt(nrow(sXgslist[[i]]$v)) * sXgssign[i],
+          P = P,
+          Module = paste0("Module ", which(moduleindex == i)))
+      }))
+p1 =
+  ggplot(data = dataplot,
+         aes (x = diet,
+              y = level)) +
+  geom_col(aes(fill = P < 0.05)) +
+  scale_fill_manual(values = c("gray50", "black")) +
+  guides(fill = "none") +
+  labs(x = NULL,
+       y = "Relative expression level of module") +
+  facet_grid(rows = vars(Module))
+ggsave(filename = paste0(tgtct, ".modulescore_diet.Gene.pdf"), p1,
+       height = 3.5, width = 3)
+```
+
 ## Stabilized regression
 
 UNDER CONSTRUCTION
