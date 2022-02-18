@@ -991,8 +991,12 @@ data %>%
 
 ## SVD based on weighting by NMF factors (modules)
 
-GENIE3 and NMF quantify the importance of genes/motifs as variance.
+GENIE3 and NMF quantify the importance of genes/motifs as explained variance.
 To infer the "directionality", we perform SVD by incorporating the variance as weight.
+GENIE3 is a regression: each gene ~ motifs.
+SVD and PCA are for extracting correlation.
+Although the two concepts differ, it seems to work for assigning directionality.
+We might say that genes/motifs highlighted in both approaches are robustly important.
 
 ```{r}
 A = proj6$spdietcombined[match(colnames(matnrDEGene), proj6$cellNames)]
