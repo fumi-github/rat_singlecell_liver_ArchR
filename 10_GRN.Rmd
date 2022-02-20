@@ -1050,9 +1050,7 @@ lapply(
   function (x) x$d)
 ```
 SVD with permuted weight.
-Check if the weighted genes are co-regulated more than randomly chosen genes (ie more than "average").
-The permutation of wGene, wMotif is an interesting procedure,
-however the corresponding null hypothesis does not seem to be justifiable.
+Check if the regulator motifs are correlated with regulatee genes.
 
 ```{r}
 set.seed(123)
@@ -1063,16 +1061,9 @@ sXgsnull = sapply(
     sapply(
       1:100,
       function (j) { # permutation trial
-        x = irlba::irlba(rbind(XGene * wGene[sample(nrow(wGene)), i],
-                               XMotif * wMotif[sample(nrow(wMotif)), i]))
-        cbind(
-          data.frame(
-            d1 = x$d[1],
-            maxabsu1Gene = max(abs(x$u[1:nrow(wGene), 1])),
-            maxabsu1Motif = max(abs(x$u[nrow(wGene) + 1:nrow(wMotif), 1])),
-            maxabsscore1Gene = max(abs(x$u[1:nrow(wGene), 1] * x$d[1])),
-            maxabsscore1Motif = max(abs(x$u[nrow(wGene) + 1:nrow(wMotif), 1] * x$d[1]))),
-          as.data.frame(as.list(abs(tapply(x$v[, 1], A, mean)))))
+        x = irlba::irlba(rbind(XGene * wGene[, i],
+                               XMotif[, sample(ncol(XMotif))] * wMotif[, i]))
+        data.frame(d1 = x$d[1])
       })
   },
   simplify = "array")
@@ -1081,7 +1072,7 @@ sXgsnull = sapply(
 lapply(
   1:dim(res)[3],
   function (i) {
-    mean(as.numeric(sXgsnull["d1", , i]) > sXgslist[[i]]$d[1])
+    mean(as.numeric(sXgsnull[, i]) > sXgslist[[i]]$d[1])
   })
 ```
 
@@ -1108,34 +1099,24 @@ lapply(
   function (i) {
     x = sXgslist[[i]]$u[1:nrow(XGene), 1] * sXgslist[[i]]$d[1]
     names(x) = row.names(XGene)
-    fwe =
-      sapply(x, function (xi) {
-        mean(abs(xi) < as.numeric(sXgsnull["maxabsscore1Gene", , i])) })
-    x = x * sXgssign[i]
-    x = c(head(sort(x), 5), tail(sort(x), 5))
-    fwe = fwe[names(x)]
+    x = sort(x * sXgssign[i])
+    x = c(head(x, 5), tail(x, 5))
     dataplot = data.frame(
       order = 1:length(x),
       score = x,
-      fwe = fwe,
       name = sub("^Gene.", "", names(x)),
       type = "Gene",
       module = paste0("Module ", which(moduleindex == i)))
     
     x = sXgslist[[i]]$u[nrow(XGene) + 1:nrow(XMotif), 1] * sXgslist[[i]]$d[1]
     names(x) = row.names(XMotif)
-    fwe =
-      sapply(x, function (xi) {
-        mean(abs(xi) < as.numeric(sXgsnull["maxabsscore1Motif", , i])) })
-    x = x * sXgssign[i]
-    x = c(head(sort(x), 5), tail(sort(x), 5))
-    fwe = fwe[names(x)]
+    x = sort(x * sXgssign[i])
+    x = c(head(x, 5), tail(x, 5))
     dataplot = rbind(
       dataplot,
       data.frame(
         order = 1:length(x),
         score = x,
-        fwe = fwe,
         name = sub("^Motif.", "", names(x)),
         type = "Motif",
         module = paste0("Module ", which(moduleindex == i))))
@@ -1145,9 +1126,7 @@ lapply(
       ggplot(data = dataplot,
              aes(x = order,
                  y = score)) +
-      geom_col(aes(fill = fwe < 0.05)) +
-      scale_fill_manual(values = c("gray50", "black")) +
-      guides(fill = "none") +
+      geom_col() +
       geom_text(aes(label = name, y = - sign(score), hjust = -0.5 * sign(score) + 0.5), angle = -90) +
       theme(
         axis.ticks.x = element_blank(),
@@ -1170,21 +1149,23 @@ dataplot =
     lapply(
       1:dim(res)[3],
       function (i) {
-        x = tapply(sXgslist[[i]]$v[, 1], A, mean)
-        P = rowMeans(sXgsnull[levels(A), , i] > abs(as.numeric(x)))
-        data.frame(
-          diet = names(x),
-          level = x * sqrt(nrow(sXgslist[[i]]$v)) * sXgssign[i],
-          P = P,
-          Module = paste0("Module ", which(moduleindex == i)))
+        a0 = lm(
+          sXgslist[[i]]$v[, 1] * sqrt(nrow(sXgslist[[i]]$v)) * sXgssign[i] ~
+            0 + A)
+        x = summary(a0)$coefficients[, 1:2]
+        x = as.data.frame(x)
+        x$diet = sub("^A", "", rownames(x))
+        x$Module = paste0("Module ", which(moduleindex == i))
+        return(x)
       }))
 p1 =
   ggplot(data = dataplot,
          aes (x = diet,
-              y = level)) +
-  geom_col(aes(fill = P < 0.05)) +
-  scale_fill_manual(values = c("gray50", "black")) +
-  guides(fill = "none") +
+              y = Estimate)) +
+  geom_linerange(
+    aes(ymin = Estimate - `Std. Error`,
+        ymax = Estimate + `Std. Error`)) +
+  geom_col() +
   labs(x = NULL,
        y = "Relative expression level of module") +
   facet_grid(rows = vars(Module))
