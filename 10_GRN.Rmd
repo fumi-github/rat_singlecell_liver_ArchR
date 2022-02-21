@@ -643,6 +643,7 @@ The basis for the  factor includes Motif.Hnf4g.
 We set this factor as the last one in moduleindex.
 Motif.Hnf4g is up in m154207 (HFD4w) and down in m168101 (washout).  Why??
 
+This setting is for visualization.
 We set the factor(s) with significant GSEA in the beginning (see below).
 
 ```{r}
@@ -656,7 +657,11 @@ moduleindex = c(1, 3, 2)
 moduleindex = c(3, 1, 2, 4)
 # T_NK
 moduleindex = c(1, 2, 3)
+```
 
+Draw heatmap for regulation of genes by motifs.
+
+```{r}
 topMotiflist = lapply(
   moduleindex,
   function (i) {
@@ -1075,12 +1080,12 @@ lapply(
     mean(as.numeric(sXgsnull[, i]) > sXgslist[[i]]$d[1])
   })
 ```
-
+This setting is for visualization.
 SVD direction for plotting.
 
 ```{r}
 # hepato
-sXgssign = c(1, -1, -1, 1)
+sXgssign = c(1, -1, 1, 1)
 # stellate
 sXgssign = c(-1, -1, 1, 1)
 # endothelial
