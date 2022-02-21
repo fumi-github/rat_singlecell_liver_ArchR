@@ -904,7 +904,7 @@ p1 =
   labs(title = tgtct,
        x = NULL)
 show(p1)
-# ggsave(p1, filename = "modulescore_GSEA.Gene.pdf", width = 3, height = 5)
+# ggsave(p1, filename = "modulescore_GSEA.Gene.pdf", width = 3.15, height = 5.65)
 ```
 
 ## Visualize NMF VarianceImportance vs differential expression
