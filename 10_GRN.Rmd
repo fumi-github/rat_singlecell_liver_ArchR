@@ -684,7 +684,7 @@ topGene = union(do.call(c, topGenelist), c())
 weightMatrix = readRDS(paste0("GENIE3.",  tgtct, ".rds"))
 x = t(weightMatrix[topMotif, topGene])
 rownames(x) = sub("^Gene.", "", rownames(x))
-colnames(x) = sub("^Motif.", "", colnames(x))
+colnames(x) = toupper(sub("^Motif.", "", colnames(x)))
 
 aC = as.data.frame(basis(res)[topMotif, moduleindex])
 names(aC) = paste0("Motif.M", 1:ncol(aC))
@@ -1123,7 +1123,7 @@ lapply(
       data.frame(
         order = 1:length(x),
         score = x,
-        name = sub("^Motif.", "", names(x)),
+        name = toupper(sub("^Motif.", "", names(x))),
         type = "Motif",
         module = paste0("Module ", which(moduleindex == i))))
     
