@@ -1849,6 +1849,10 @@ ggplot(data = dataplot,
 
 Gene-gene regulation
 
+TODO: Instead of using Y (within environment dispersion; centralized per diet),
+include diet conditions in regulators of GENIE3.
+This can handle non-linearity and should be more robust.
+
 ```{r}
 library(GENIE3)
 
