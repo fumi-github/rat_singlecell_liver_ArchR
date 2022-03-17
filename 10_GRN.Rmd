@@ -1541,18 +1541,60 @@ For a given gene set, the following might be confused but are different:
 Load `gslists` from `9_GSEA.Rmd`.
 
 ```{r}
+# hepato
+dbname = 'GOBP'; gsname = 'GOBP_STEROID_METABOLIC_PROCESS%%M16758'
 dbname = 'REACTOME'; gsname = 'REACTOME_CHOLESTEROL_BIOSYNTHESIS%%M16227'
 dbname = 'GOBP'; gsname = 'GOBP_FATTY_ACID_METABOLIC_PROCESS%%M17829'
-dbname = 'KEGG'; gsname = 'KEGG_PPAR_SIGNALING_PATHWAY%%M13088'
-dbname = 'H'; gsname = 'HALLMARK_TNFA_SIGNALING_VIA_NFKB%%M5890'
-dbname = 'GOBP'; gsname = 'GOBP_RESPONSE_TO_CYTOKINE%%M15783'
-dbname = 'GOBP'; gsname = 'GOBP_ADAPTIVE_IMMUNE_RESPONSE%%M13847'
+dbname = 'KEGG'; gsname = 'KEGG_PPAR_SIGNALING_PATHWAY%%M13088' # failed check
 dbname = 'KEGG'; gsname = 'KEGG_APOPTOSIS%%M8492'
 dbname = 'GOBP'; gsname = 'GOBP_APOPTOTIC_PROCESS%%M34075'
-dbname = 'GOBP'; gsname = 'GOBP_CELL_MIGRATION%%M40389'
-dbname = 'REACTOME'; gsname = 'REACTOME_EXTRACELLULAR_MATRIX_ORGANIZATION%%M610'
 dbname = 'GOBP'; gsname = 'GOBP_INSULIN_LIKE_GROWTH_FACTOR_RECEPTOR_SIGNALING_PATHWAY%%M12608'
+dbname = 'WIKIPATHWAYS'; gsname = 'WP_FARNESOID_X_RECEPTOR_PATHWAY%%M39411'
+
+# stellate
+dbname = 'GOBP'; gsname = 'GOBP_SEMAPHORIN_PLEXIN_SIGNALING_PATHWAY%%M15378'
+dbname = 'REACTOME'; gsname = 'REACTOME_EXTRACELLULAR_MATRIX_ORGANIZATION%%M610' # failed check
+dbname = 'GOBP'; gsname = 'GOBP_ACTIN_FILAMENT_BASED_PROCESS%%M9082'
+
+# myelo
+dbname = 'REACTOME'; gsname = 'REACTOME_CREATION_OF_C4_AND_C2_ACTIVATORS%%M1078'
+
+# hepato endothelial myelo
+dbname = 'H'; gsname = 'HALLMARK_TNFA_SIGNALING_VIA_NFKB%%M5890'
+dbname = 'GOBP'; gsname = 'GOBP_RESPONSE_TO_CYTOKINE%%M15783' # myelo failed check
+dbname = 'GOBP'; gsname = 'GOBP_ADAPTIVE_IMMUNE_RESPONSE%%M13847' # myelo failed check
+
+# hepato stellate myelo
+dbname = 'GOBP'; gsname = 'GOBP_CELL_MIGRATION%%M40389' # stellate failed check
+
+# hepato stellate myelo T_NK
+dbname = 'KEGG'; gsname = 'KEGG_TGF_BETA_SIGNALING_PATHWAY%%M2642' # hepato & stellate failed check
+
+# endothelial myelo
+dbname = 'WIKIPATHWAYS'; gsname = 'WP_VEGFAVEGFR2_SIGNALING_PATHWAY%%M39729'
+
 gs = gslists[[ dbname ]][[ gsname ]]
+```
+
+Zonation genes from literature as a gene set
+
+```{r}
+gsname = "ZONATION"
+x = read.table(
+  # "zonation_hepatocyte_mouse_10.1038_nature21065_TableS3_q001.txt", # too many; PC2 also large
+  "zonation_hepatocyte_mouse_10.1038_nature21065_TableS3_q1e-6.txt",
+  # "zonation_stellate_mouse_10.1016_j.celrep.2019.10.024_TableS1.txt", # not significant
+  # "zonation_endothelial_mouse_10.1038_nbt.4231_TableS5_q02.txt", # not significant
+  # "zonation_endothelial_mouse_10.1038_nbt.4231_TableS5_q001.txt", # not significant
+  # "zonation_endothelial_mouse_10.1038_nbt.4231_TableS5_q1e-6.txt", # not significant
+  header = FALSE)$V1
+# Convert to rat gene symbol
+attach("~/human/publicrat/homologs/mouse_to_rat_homologs.Rda")
+x = mouse_to_rat_homologs$RGD.symbol[
+  match(
+    tolower(x),
+    tolower(mouse_to_rat_homologs$NCBI.gene..formerly.Entrezgene..accession))]
+gs = x[(! is.na(x)) & (x != "")]
 ```
 
 Load STRING protein-protein interaction with gs
