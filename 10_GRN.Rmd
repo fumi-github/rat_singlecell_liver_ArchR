@@ -1730,7 +1730,7 @@ the co-regulation can be an artifact; it can be genuine, but is difficult to pro
 
 ```{r}
 dataplot = data.frame(
-  score = rbind(XGene, XMotif) %*% sXgs$v[, 1] * sXgssign,
+  score = rbind(XGene, XMotif) %*% sXgs$v[, 1] / sqrt(ncol(XGene) - 1) * sXgssign,
   name = c(sub("Gene.", "", rownames(XGene)),
            toupper(sub("Motif.", "", rownames(XMotif)))),
   genename = c(sub("Gene.", "", rownames(XGene)),
@@ -1758,14 +1758,15 @@ p1 =
   geom_point(aes(color = interact),
              size = 0.5) +
   scale_color_manual(values = c("Red", "Blue")) +
-  geom_text(data = dataplot[abs(dataplot$score) > 30 & dataplot$interact == "High", ],
+  geom_text(data = dataplot[abs(dataplot$score) > 0.3 & # 0.4 if not hepato
+                              dataplot$interact == "High", ],
             aes(x = score,
                 y = ppinteractionwithgs,
                 label = name),
             vjust = 0,
             size = 2) +
   facet_grid(rows = vars(geneset2)) +
-  labs(x = "PCA score",
+  labs(x = "Correlation with GS expression",
        y = "Total protein-protein interactions with GS",
        title = paste0(gsname, "\n", tgtct))
 ggsave(p1, filename = paste0("ppinteractionwithgs.", tgtct, ".", gsname, ".pdf"),
