@@ -1617,50 +1617,161 @@ t.test(string$ppinteractionwithgs[string$protein1 %in% gs],
 
 ## Differential expression
 
-In the code block below, check if the genes in the gene set are co-regulated.
-In the next block, check if the expression level differs among diet conditions.
-In total, there are three points to check statistical significance.
+In the code block below, check if the genes in `gs` are co-regulated, more than "average".
+If so, we analyze differential expression in the direction of `gs`,
+which might or might not be differentially expressed between diet conditions.
 
-As a first attempt, use `matnrDEGene`, which should include less noise.
-If failed, try with `matnrGene`. (Really??)
-If also failed, discard the gene set.
+Use `matnrDEGene` and `matnrDEMotif`, which should include less noise.
+When `gs` is not differentially expressed between diet conditions,
+instead use `matnrGene` and `matnrMotif`;
+specifically for GOBP_SEMAPHORIN_PLEXIN_SIGNALING_PATHWAY and ZONATION.
 
 ```{r}
-X = assay(matnrDEGene)
+# For DE genes/motifs
+identical(colnames(matnrDEGene), colnames(matnrDEMotif))
 A = proj6$spdietcombined[match(colnames(matnrDEGene), proj6$cellNames)]
-# X = assay(matnrGene)
+
+# For all genes/motifs
+# identical(colnames(matnrGene), colnames(matnrMotif))
 # A = proj6$spdietcombined[match(colnames(matnrGene), proj6$cellNames)]
 
-X = X - rowMeans(X)
-X = X / rowSds(X)
 A = as.factor(A)
+```
 
-Xgs = X[rownames(X) %in% paste0("Gene.", gs), ]
-sXgs = svd(Xgs)
+Make weight by gs.
+
+```{r}
+# For DE genes/motifs
+wGene = (rownames(matnrDEGene) %in% paste0("Gene.", gs)) * 1
+names(wGene) = rownames(matnrDEGene)
+wMotif = (rownames(matnrDEMotif) %in% paste0("Motif.", gs)) * 1
+names(wMotif) = rownames(matnrDEMotif)
+
+# For all genes/motifs
+# wGene = (rownames(matnrGene) %in% paste0("Gene.", gs)) * 1
+# names(wGene) = rownames(matnrGene)
+# wMotif = (rownames(matnrMotif) %in% paste0("Motif.", gs)) * 1
+# names(wMotif) = rownames(matnrMotif)
+```
+
+Weighted SVD.
+
+```{r}
+# For DE genes/motifs
+XGene = assay(matnrDEGene)
+XMotif = assay(matnrDEMotif)
+
+# For all genes/motifs
+# XGene = assay(matnrGene)
+# XMotif = assay(matnrMotif)
+
+XGene = XGene - rowMeans(XGene)
+XGene = XGene / rowSds(XGene)
+XMotif = XMotif - rowMeans(XMotif)
+XMotif = XMotif / rowSds(XMotif)
 
 set.seed(123)
-sXgsdnull = sapply(
-  1:100,
-  function (i) {
-    Xgspermute = X[sample(1:nrow(X), nrow(Xgs)), ]
-    return(svd(Xgspermute)$d)
-  })
-
-# Check if first element attains P < 0.05
-head(rowMeans(sXgsdnull > sXgs$d))
+sXgs = irlba::irlba(rbind(XGene * wGene, XMotif * wMotif))
 
 # Check if first element is much larger than the remaining.
 # If not, the gene set is heterogeneous, and discarded.
-plot(sXgs$d)
-
-# dataplot = as.data.frame(sXgs$u)
-# dataplot$genename = rownames(Xgs)
-# ggplot(data = dataplot,
-#        aes(x = V1, y = V2)) +
-#   geom_text(
-#     aes(
-#       label = sub("^Gene.", "", genename)))
+sXgs$d
 ```
+
+SVD with permuted weight.
+Check if the regulator motifs/genes are correlated more than randomly picked motifs/genes.
+
+```{r}
+set.seed(123)
+sXgsnull = 
+  sapply(
+    1:10, # 1:100,
+    function (j) { # permutation trial
+      x = irlba::irlba(rbind(XGene * wGene[sample(length(wGene))],
+                             XMotif * wMotif[sample(length(wMotif))]))
+      x$d[1]
+    })
+
+# Check if first SVD component attains P < 0.05
+mean(sXgsnull > sXgs$d[1])
+```
+
+Relative expression level of diets, for each NMF factor.
+
+```{r}
+sXgssign = 1 # 1 or -1
+
+a0 = lm(sXgs$v[, 1] * sqrt(nrow(sXgs$v)) * sXgssign ~ 0 + A)
+
+dataplot = summary(a0)$coefficients[, 1:2]
+dataplot = as.data.frame(dataplot)
+dataplot$diet = sub("^A", "", rownames(dataplot))
+
+p1 =
+  ggplot(data = dataplot,
+         aes (x = diet,
+              y = Estimate)) +
+  geom_linerange(
+    aes(ymin = Estimate - `Std. Error`,
+        ymax = Estimate + `Std. Error`)) +
+  geom_col() +
+  labs(x = NULL,
+       y = "Relative expression level of module")
+ggsave(filename = paste0(tgtct, ".", gsname, ".diet.pdf"), p1,
+       height = 3.5, width = 3)
+```
+
+Combine with ppinteractionwithgs
+Among genes/motifs with large abs(score), if many have high ppinteractionwithgs, this approach is promising.
+If most have low ppinteractionwithgs, this approach is not working.
+
+If a few genes have similar and extreme score, and the genes are clustered on chromosome,
+the co-regulation can be an artifact; it can be genuine, but is difficult to prove in snATAC-seq.
+
+```{r}
+dataplot = data.frame(
+  score = rbind(XGene, XMotif) %*% sXgs$v[, 1] * sXgssign,
+  name = c(sub("Gene.", "", rownames(XGene)),
+           toupper(sub("Motif.", "", rownames(XMotif)))),
+  genename = c(sub("Gene.", "", rownames(XGene)),
+               sub("Motif.", "", rownames(XMotif)))
+)
+
+dataplot$ppinteractionwithgs =
+  string$ppinteractionwithgs[
+    match(dataplot$genename, string$protein1)]
+dataplot$ppinteractionwithgs[
+  is.na(dataplot$ppinteractionwithgs)] = 0
+
+dataplot$interact = "Low"
+dataplot$interact[
+  dataplot$ppinteractionwithgs >
+    quantile(dataplot$ppinteractionwithgs, 0.95)] = "High"
+dataplot$geneset2 = "Genes not in GS"
+dataplot$geneset2[dataplot$genename %in% gs] = "Genes in GS"
+sum(dataplot$genename %in% gs)
+p1 =
+  ggplot(
+    data = dataplot,
+    aes(x = score,
+        y = ppinteractionwithgs)) +
+  geom_point(aes(color = interact),
+             size = 0.5) +
+  scale_color_manual(values = c("Red", "Blue")) +
+  geom_text(data = dataplot[abs(dataplot$score) > 30 & dataplot$interact == "High", ],
+            aes(x = score,
+                y = ppinteractionwithgs,
+                label = name),
+            vjust = 0,
+            size = 2) +
+  facet_grid(rows = vars(geneset2)) +
+  labs(x = "PCA score",
+       y = "Total protein-protein interactions with GS",
+       title = paste0(gsname, "\n", tgtct))
+ggsave(p1, filename = paste0("ppinteractionwithgs.", tgtct, ".", gsname, ".pdf"),
+       height = 4, width = 5)
+```
+
 
 For the 1st principal component computed above, check if diet conditions differ.
 If so, compute the average expression level `gslevel` of the gene set in each condition.
