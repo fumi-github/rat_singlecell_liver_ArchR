@@ -1055,6 +1055,7 @@ lapply(
   sXgslist,
   function (x) x$d)
 ```
+
 SVD with permuted weight.
 Check if the regulator motifs are correlated with regulatee genes.
 
@@ -1081,6 +1082,7 @@ lapply(
     mean(as.numeric(sXgsnull[, i]) > sXgslist[[i]]$d[1])
   })
 ```
+
 This setting is for visualization.
 SVD direction for plotting.
 
