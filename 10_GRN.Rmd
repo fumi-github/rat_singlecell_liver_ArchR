@@ -1873,6 +1873,21 @@ ggplot(
        title = paste0(gsname, "\n", tgtct))
 ```
 
+Differential motif expression against `gslevel`
+
+```{r}
+identical(colnames(matnrMotif), names(gslevel))
+resultcompared = broom::tidy(
+  lm(y ~ x,
+     data = list(
+       y = t(assay(matnrMotif)),
+       x = gslevel)))
+resultcompared = resultcompared[resultcompared$term == "x", ]
+colnames(resultcompared)[colnames(resultcompared) == "p.value"] = "p"
+resultcompared$FDR = p.adjust(resultcompared$p, method = "BH")
+colnames(resultcompared)[colnames(resultcompared) == "response"] = "genename"
+```
+
 ## Co-regulation
 
 To find "core" genes in co-regulation, we analyze co-regulation within diet/condition.
