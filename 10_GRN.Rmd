@@ -1856,7 +1856,7 @@ dataplot$diffaccinteract[
   dataplot$ppinteractionwithgs >
     quantile(dataplot$ppinteractionwithgs, 0.95)] = "DiffAcc_HighPPIGS"
 dataplot$diffaccinteract[
-  abs(dataplot$estimate) <= log2(1.1) |
+  # abs(dataplot$estimate) <= log2(1.1) |
     dataplot$FDR >= 0.01] = "NotDiffAcc"
 dataplot$geneset2 = "Genes not in GS"
 dataplot$geneset2[dataplot$ings] = "Genes in GS"
