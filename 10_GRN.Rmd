@@ -1004,11 +1004,6 @@ SVD and PCA are for extracting correlation.
 Although the two concepts differ, it seems to work for assigning directionality.
 We might say that genes/motifs highlighted in both approaches are robustly important.
 
-```{r}
-A = proj6$spdietcombined[match(colnames(matnrDEGene), proj6$cellNames)]
-A = as.factor(A)
-```
-
 Compute weight.
 
 ```{r}
@@ -1056,7 +1051,7 @@ lapply(
   function (x) x$d)
 ```
 
-SVD with permuted weight.
+SVD with cells permuted between motif and genes.
 Check if the regulator motifs are correlated with regulatee genes.
 
 ```{r}
@@ -1148,9 +1143,13 @@ lapply(
     p1
   })
 ```
+
 Relative expression level of diets, for each NMF factor.
 
 ```{r}
+A = proj6$spdietcombined[match(colnames(matnrDEGene), proj6$cellNames)]
+A = as.factor(A)
+
 dataplot =
   do.call(
     rbind,
