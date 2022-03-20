@@ -1100,8 +1100,8 @@ Major Genes/Motifs for each NMF factor.
 lapply(
   1:dim(res)[3],
   function (i) {
-    x = sXgslist[[i]]$u[1:nrow(XGene), 1] * sXgslist[[i]]$d[1] / sqrt(ncol(XGene) - 1)
-    names(x) = row.names(XGene)
+    x = (XGene / sqrt(ncol(XGene) - 1)) %*% sXgslist[[i]]$v[, 1]
+    x = x[, 1]
     x = sort(x * sXgssign[i])
     x = c(head(x, 5), tail(x, 5))
     dataplot = data.frame(
@@ -1111,8 +1111,8 @@ lapply(
       type = "Gene",
       module = paste0("Module ", which(moduleindex == i)))
     
-    x = sXgslist[[i]]$u[nrow(XGene) + 1:nrow(XMotif), 1] * sXgslist[[i]]$d[1] / sqrt(ncol(XMotif) - 1)
-    names(x) = row.names(XMotif)
+    x = (XMotif / sqrt(ncol(XMotif) - 1)) %*% sXgslist[[i]]$v[, 1]
+    x = x[, 1]
     x = sort(x * sXgssign[i])
     x = c(head(x, 5), tail(x, 5))
     dataplot = rbind(
@@ -1130,12 +1130,12 @@ lapply(
              aes(x = order,
                  y = score)) +
       geom_col() +
-      geom_text(aes(label = name, y = -0.05 * sign(score), hjust = -0.5 * sign(score) + 0.5), angle = -90) +
+      geom_text(aes(label = name, y = -0.03 * sign(score), hjust = -0.5 * sign(score) + 0.5), angle = -90) +
       theme(
         axis.ticks.x = element_blank(),
         axis.text.x = element_blank(),
         axis.title.x = element_blank()) +
-      labs(y = "Principal component score") +
+      labs(y = "Correlation with module expression") +
       facet_grid(rows = vars(module), cols = vars(type))
     ggsave(p1,
            filename = paste0("GENIE3.NMF.rank", dim(res)[3], ".", tgtct, ".PCA.", i, ".pdf"),
