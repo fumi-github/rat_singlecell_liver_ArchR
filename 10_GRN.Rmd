@@ -1148,7 +1148,7 @@ ggsave(p1,
        width = 5, height = 7)
 ```
 
-Relative expression level of diets, for each NMF factor.
+Relative expression level by diets, for each NMF factor.
 
 ```{r}
 A = proj6$spdietcombined[match(colnames(matnrDEGene), proj6$cellNames)]
@@ -1171,8 +1171,8 @@ dataplot =
       }))
 p1 =
   ggplot(data = dataplot,
-         aes (x = diet,
-              y = Estimate)) +
+         aes(x = diet,
+             y = Estimate)) +
   geom_linerange(
     aes(ymin = Estimate - `Std. Error`,
         ymax = Estimate + `Std. Error`)) +
@@ -1181,6 +1181,30 @@ p1 =
        y = "Relative expression level of module") +
   facet_grid(rows = vars(Module))
 ggsave(filename = paste0(tgtct, ".modulescore_diet.Gene.pdf"), p1,
+       height = 3.5, width = 3)
+
+dataplot =
+  do.call(
+    rbind,
+    lapply(
+      1:dim(res)[3],
+      function (i) {
+        data.frame(
+          diet = A,
+          expression = sXgslist[[i]]$v[, 1] * sqrt(nrow(sXgslist[[i]]$v)) * sXgssign[i],
+          Module = paste0("Module ", which(moduleindex == i)))
+      }))
+p1 =
+  ggplot(data = dataplot,
+         aes(x = diet,
+             y = expression)) +
+  geom_violin() +
+  geom_boxplot(width = 0.1, fill = "black", outlier.color = NA) +
+  stat_summary(fun = median, geom = "point", fill = "white", shape = 21, size = 1.7) +
+  labs(x = NULL,
+       y = "Module expression of single cells") +
+  facet_grid(rows = vars(Module))
+ggsave(filename = paste0(tgtct, ".modulescore_diet.geom_violoin.pdf"), p1,
        height = 3.5, width = 3)
 ```
 
@@ -1699,7 +1723,7 @@ sXgsnull =
 mean(sXgsnull > sXgs$d[1])
 ```
 
-Relative expression level of diets, for each NMF factor.
+Relative expression level by diets.
 
 ```{r}
 sXgssign = 1 # 1 or -1
@@ -1712,16 +1736,32 @@ dataplot$diet = sub("^A", "", rownames(dataplot))
 
 p1 =
   ggplot(data = dataplot,
-         aes (x = diet,
-              y = Estimate)) +
+         aes(x = diet,
+             y = Estimate)) +
   geom_linerange(
     aes(ymin = Estimate - `Std. Error`,
         ymax = Estimate + `Std. Error`)) +
   geom_col() +
   labs(x = NULL,
-       y = "Relative expression level of module")
+       y = "Relative expression level of GS")
 ggsave(filename = paste0(tgtct, ".", gsname, ".diet.pdf"), p1,
        height = 3.5, width = 3)
+
+dataplot =
+  data.frame(
+    diet = A,
+    expression = sXgs$v[, 1] * sqrt(nrow(sXgs$v)) * sXgssign)
+p1 =
+  ggplot(data = dataplot,
+         aes(x = diet,
+             y = expression)) +
+  geom_violin() +
+  geom_boxplot(width = 0.1, fill = "black", outlier.color = NA) +
+  stat_summary(fun = median, geom = "point", fill = "white", shape = 21, size = 1.7) +
+  labs(x = NULL,
+       y = "GS expression of single cells")
+ggsave(filename = paste0(tgtct, ".", gsname, ".diet.geom_violoin.pdf"), p1,
+       height = 1, width = 3)
 ```
 
 Combine with ppinteractionwithgs
