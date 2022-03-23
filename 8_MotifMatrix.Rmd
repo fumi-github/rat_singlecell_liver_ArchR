@@ -178,3 +178,76 @@ resultcompared$celltype =
   factor(resultcompared$celltype,
          levels = c("hepato", "stellate", "endothelial", "myelo", "B", "T_NK"))
 ```
+
+# Unify highly correlated motifs in mat
+
+Target cell type
+
+```{r}
+tgtct =
+  "hepato"
+  # "stellate"
+  # "endothelial"
+  # "myelo"
+  # "T_NK"
+```
+
+Since highly correlated motifs could be problematic in downstream analysis,
+unify those to a representative.
+
+```{r}
+mattgtct = mat[, which(mat$Clusters4BTmyelo == tgtct)]
+
+matcor = cor(t(assay(mattgtct)), method = "spearman")
+
+diag(matcor) = 0
+quantile(rowMaxs(abs(matcor)), seq(0, 1, 0.01))
+quantile(rowMaxs(abs(matcor)), seq(0.99, 1, 0.001))
+matcor[abs(matcor) < 0.9] = 0
+
+# Are there negative correlations?
+min(matcor)
+matcor = abs(matcor)
+
+# omit unique genes/motifs
+index = which(rowSums(matcor) > 0)
+identical(index, which(colSums(matcor) > 0))
+matcor = matcor[index, index]
+
+library(igraph)
+x = as.character()
+for (j in 1:ncol(matcor)) {
+  connected = matcor[, j]
+  connected = connected[connected > 0]
+  x = c(x,
+        as.character(
+          rbind(
+            names(connected),
+            colnames(matcor)[j])))
+}
+matcorgraph = graph(edges = x, directed = FALSE)
+matcorgraphcomp = igraph::components(matcorgraph, mode = "weak")
+
+redundant = list()
+for (i in unique(matcorgraphcomp$membership)) {
+  m = names(matcorgraphcomp$membership)[matcorgraphcomp$membership == i]
+  m = names(sort(rowSums(matcor[m, ]), decreasing = TRUE))
+  # the largest is kept (and stored as name), and the others are redundant
+  x = list(m[-1])
+  names(x) = m[1]
+  redundant = c(redundant, x)
+}
+
+# non-redundant
+index = which(! rownames(mattgtct) %in% unlist(redundant))
+matnr = mattgtct[index, ]
+
+redundantMotif = redundant
+matnrMotif = matnr
+rownames(matnrMotif) = paste0("Motif.", rownames(matnrMotif))
+
+# saveRDS(redundantMotif, file = paste0("redundantMotif.", tgtct, ".rds"))
+# saveRDS(matnrMotif,     file = paste0("matnrMotif.",     tgtct, ".rds"))
+redundantMotif = readRDS(paste0("redundantMotif.", tgtct, ".rds"))
+matnrMotif     = readRDS(paste0("matnrMotif.",     tgtct, ".rds"))
+```
