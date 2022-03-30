@@ -1,0 +1,866 @@
+---
+title: "cell type composition"
+output: html_notebook
+---
+
+Estimate cell type composition of bulk ATAC-seq by using DeconPeaker
+
+For proper quantile normalization, include all peaks from genome.
+
+```{r}
+x = getMatrixFromProject(proj6, useMatrix = "PeakMatrix")
+xrowMeans = rowMeans(assay(x))
+qplot(
+  x = 1:length(xrowMeans),
+  y = log10(sort(xrowMeans)),
+  geom = "point")
+quantile(xrowMeans, c(0.25, 0.5, 0.75))
+#        25%        50%        75% 
+# 0.01317084 0.02490349 0.04995837
+# 0.01183432 0.02253072 0.04574420
+quantile(xrowMeans, seq(0.9, 1, 0.01))
+xmax = quantile(xrowMeans, 0.99) # 0.6837174 0.6525095
+idx = which(xrowMeans < xmax)
+x = x[idx, ]
+
+output = data.frame(
+  chrom = seqnames(x),
+  start = start(x),
+  end = end(x)
+)
+# cg = proj4@projectMetadata$GroupCoverages$Clusters2$Params$cellGroups
+cg = proj6@projectMetadata$GroupCoverages$Clusters4res05$Params$cellGroups
+# cg = proj6@projectMetadata$GroupCoverages$Clusters4res02$Params$cellGroups
+for (g in names(cg)) {
+  for (s in names(cg[[g]])) {
+    cells = cg[[g]][[s]]
+    idx = which(colnames(x) %in% cells)
+    output[, paste0(g, "._.", s)] =
+      rowSums(assay(x)[, idx])
+  }
+}
+```
+
+Check the peak matrix aggregated by groups.
+
+```{r}
+foo = output[, -c(1:3)]
+cg = colnames(foo)
+g = sub("\\..*", "", cg)
+
+i = "C1"; j = "C10"
+dataplot = data.frame(
+  imean = rowMeans(foo[, g == i]),
+  jmean = rowMeans(foo[, g == j]),
+  isd   = rowSds(as.matrix(foo[, g == i])),
+  jsd   = rowSds(as.matrix(foo[, g == j]))
+)
+ggplot(
+  data = dataplot,
+  aes(
+    x = log10(imean),
+    y = log10(jmean)
+    # y = isd / imean  # coefficient of variation 0.5-1
+    # x = log10(imean + jmean) / 2,
+    # y = log10(jmean / imean)
+  )) +
+  geom_bin2d() +
+  scale_fill_gradient(name = "count", trans = "log10") +
+  geom_abline(slope = 1, intercept = 0)
+```
+
+* imean
+  + The correct scale for is log; Majority of data within 0.5-10
+* coefficient of variation isd / imean
+  + 0.5-1
+  + biological noise + technical error
+
+```{r}
+foo = output[, -c(1:3)]
+foo = foo / matrix(sqrt(colSums(foo^2)), nrow = nrow(foo), ncol = ncol(foo), byrow = TRUE)
+foo = foo * log2(ncol(foo) / rowSums(foo))
+foo = foo - rowMeans(foo)
+foosvd = svd(foo)
+dataplot = as.data.frame(foosvd$v)
+dataplot$label = colnames(foo)
+ggplot(
+  data = dataplot,
+  aes(x = V1,
+      y = V2)) +
+  geom_text(
+    aes(label = label),
+    size = 2)
+dataplot[, c("V1", "V2", "label")]
+
+# Inspect features selected (below) by DeconPeaker
+dp = read.table(
+  "../DeconPeaker/findctsps.Clusterscoarse/PROFILE_signature_matrix.xls",
+  # "../DeconPeaker/findctsps.Clusters2WBC/PROFILE_signature_matrix.xls",
+  # "../DeconPeaker/findctsps.Clusters2stellate/PROFILE_signature_matrix.xls",
+  # "../DeconPeaker/findctsps.Clusters2endothelial/PROFILE_signature_matrix.xls",
+  sep = "\t",
+  header = TRUE)
+ov = GenomicRanges::findOverlaps(
+      x@rowRanges,
+      makeGRangesFromDataFrame(dp[, c("chrom", "start", "end")]),
+      select = "first")
+ov = !is.na(ov)
+qplot(
+  x = ov,
+  y = rowSds(as.matrix(foo)),
+  geom = "boxplot")
+foosvd = svd(foo[ov, ])
+dataplot = as.data.frame(foosvd$v)
+dataplot$label = colnames(foo)
+ggplot(
+  data = dataplot,
+  aes(x = V1,
+      y = V2)) +
+  geom_text(
+    aes(label = label),
+    size = 2)
+dataplot[, c("V1", "V2", "label")]
+```
+
+Write DeconPeaker input files.
+
+```{r}
+write.table(
+  output,
+  file = "../DeconPeaker/PROFILE.txt",
+  row.names = FALSE,
+  quote = FALSE,
+  sep = "\t"
+)
+```
+
+Quantile normalization of pseudo bulks by myself and
+obtain approximate nuclei count.
+
+```{r}
+foo = output[, -c(1:3)]
+cg = colnames(foo)
+g = sub("\\..*", "", cg)
+s = sub(".*\\.", "", cg)
+fooqn = preprocessCore::normalize.quantiles(as.matrix(foo))
+colnames(fooqn) = cg
+
+cgcount =
+  unlist(lapply(
+    proj6@projectMetadata$GroupCoverages$Clusters4res05$Params$cellGroups,
+    function (g) { lapply(g, length) }))
+all(sub("\\._\\.", ".", cg) == names(cgcount))
+
+x = (s %in% proj6$Sample) # omit "Other" etc.
+foo     = foo[, x]
+fooqn   = fooqn[, x]
+cg      = cg[x]
+g       = g[x]
+s       = s[x]
+cgcount = cgcount[x]
+
+fooqncount =
+  colSums(fooqn) / colSums(as.matrix(foo)) * cgcount
+
+sunique = sort(unique(s))
+smat = do.call(
+  rbind,
+  lapply(s, function (s) {1 * (s == sunique)}))
+colnames(smat) = sunique
+
+gunique = unique(g)
+gunique = gunique[order(as.numeric(sub("C", "", gunique)))]
+gmat = do.call(
+  rbind,
+  lapply(g, function (g) {1 * (g == gunique)}))
+colnames(gmat) = gunique
+
+# factor out the counts by group and sample
+a0 = lm(
+  log(fooqncount) ~ . + 0,
+  data = as.data.frame(cbind(fooqncount, gmat, smat[, -1])))
+summary(a0)
+
+qncountfactor = exp(a0$coefficients)
+qncountfactor = c(1, qncountfactor)
+names(qncountfactor)[1] = sunique[1]
+plot(qncountfactor[gunique])
+
+qncountfactoradditivemean = qncountfactor
+x = mean(qncountfactoradditivemean[paste0("C", 1:7)]) # 165.0143903
+names(x) = "hepato"
+qncountfactoradditivemean = c(qncountfactoradditivemean, x)
+x = mean(qncountfactoradditivemean[paste0("C", 8:11)]) # 399.1505866
+names(x) = "WBC"
+qncountfactoradditivemean = c(qncountfactoradditivemean, x)
+x = mean(qncountfactoradditivemean[paste0("C", 12)]) # 308.9983541
+names(x) = "stellate"
+qncountfactoradditivemean = c(qncountfactoradditivemean, x)
+x = mean(qncountfactoradditivemean[paste0("C", 13:14)]) # 525.2607770
+names(x) = "endothelial"
+qncountfactoradditivemean = c(qncountfactoradditivemean, x)
+x = mean(qncountfactoradditivemean[paste0("C", 8:9)])
+names(x) = "myelo"
+qncountfactoradditivemean = c(qncountfactoradditivemean, x)
+x = mean(qncountfactoradditivemean[paste0("C", 10)])
+names(x) = "T_NK"
+qncountfactoradditivemean = c(qncountfactoradditivemean, x)
+x = mean(qncountfactoradditivemean[paste0("C", 11)])
+names(x) = "B"
+qncountfactoradditivemean = c(qncountfactoradditivemean, x)
+
+qncountfactorarithmeticmean = qncountfactor
+x = 1/mean(1/qncountfactorarithmeticmean[paste0("C", 1:7)]) # 148.1783945
+names(x) = "hepato"
+qncountfactorarithmeticmean = c(qncountfactorarithmeticmean, x)
+x = 1/mean(1/qncountfactorarithmeticmean[paste0("C", 8:11)]) # 372.2661055
+names(x) = "WBC"
+qncountfactorarithmeticmean = c(qncountfactorarithmeticmean, x)
+x = 1/mean(1/qncountfactorarithmeticmean[paste0("C", 12)]) # 308.9983541
+names(x) = "stellate"
+qncountfactorarithmeticmean = c(qncountfactorarithmeticmean, x)
+x = 1/mean(1/qncountfactorarithmeticmean[paste0("C", 13:14)]) # 460.6685416
+names(x) = "endothelial"
+qncountfactorarithmeticmean = c(qncountfactorarithmeticmean, x)
+x = 1/mean(1/qncountfactorarithmeticmean[paste0("C", 8:9)])
+names(x) = "myelo"
+qncountfactorarithmeticmean = c(qncountfactorarithmeticmean, x)
+x = 1/mean(1/qncountfactorarithmeticmean[paste0("C", 10)])
+names(x) = "T_NK"
+qncountfactorarithmeticmean = c(qncountfactorarithmeticmean, x)
+x = 1/mean(1/qncountfactorarithmeticmean[paste0("C", 11)])
+names(x) = "B"
+qncountfactorarithmeticmean = c(qncountfactorarithmeticmean, x)
+
+x = exp(mean(log(qncountfactor[paste0("C", 1:7)]))) # 156.2552176
+names(x) = "hepato"
+qncountfactor = c(qncountfactor, x)
+x = exp(mean(log(qncountfactor[paste0("C", 8:11)]))) # 386.3771022
+names(x) = "WBC"
+qncountfactor = c(qncountfactor, x)
+x = exp(mean(log(qncountfactor[paste0("C", 12)]))) # 308.9983541
+names(x) = "stellate"
+qncountfactor = c(qncountfactor, x)
+x = exp(mean(log(qncountfactor[paste0("C", 13:14)]))) # 491.9055967
+names(x) = "endothelial"
+qncountfactor = c(qncountfactor, x)
+x = exp(mean(log(qncountfactor[paste0("C", 8:9)])))
+names(x) = "myelo"
+qncountfactor = c(qncountfactor, x)
+x = exp(mean(log(qncountfactor[paste0("C", 10)])))
+names(x) = "T_NK"
+qncountfactor = c(qncountfactor, x)
+x = exp(mean(log(qncountfactor[paste0("C", 11)])))
+names(x) = "B"
+qncountfactor = c(qncountfactor, x)
+```
+
+
+```{r}
+cg = colnames(output)[-c(1:3)]
+g = sub("\\..*", "", cg)
+# # Clusters2
+# g[g %in% paste0("C", 1:9)] = "hepato"
+# g[g %in% paste0("C", 10:12)] = "WBC"
+# g[g %in% paste0("C", 13:14)] = "stellate"
+# g[g %in% paste0("C", 15:17)] = "endothelial"
+# adjvar04Leiden_adjvar01Leiden Clusters4res05
+g[g %in% paste0("C", 1:7)] = "hepato"
+# g[g %in% paste0("C", 8:11)] = "WBC"
+g[g %in% paste0("C", 8:9)] = "myelo"
+g[g %in% paste0("C", 10)] = "T_NK"
+g[g %in% paste0("C", 11)] = "B"
+g[g %in% paste0("C", 12)] = "stellate"
+g[g %in% paste0("C", 13:14)] = "endothelial"
+# # adjvar04Leiden_adjvar01Leiden Clusters4res02
+# g[g %in% paste0("C", 1:3)] = "hepato"
+# g[g %in% paste0("C", 4:5)] = "WBC"
+# g[g %in% paste0("C", 6)] = "stellate"
+# g[g %in% paste0("C", 7)] = "endothelial"
+
+PHENOTYPE =
+  sapply(
+    unique(g),
+    function (x) {2 - (g == x)}
+  )
+PHENOTYPE = as.data.frame(t(PHENOTYPE))
+colnames(PHENOTYPE) = cg
+write.table(
+  PHENOTYPE,
+  file =
+    # "../DeconPeaker/PHENOTYPE.Clusters2.txt",
+    # "../DeconPeaker/PHENOTYPE.Clusters2hepato.txt",
+    # "../DeconPeaker/PHENOTYPE.Clusters2WBC.txt",
+    # "../DeconPeaker/PHENOTYPE.Clusters2stellate.txt",
+    # "../DeconPeaker/PHENOTYPE.Clusters2endothelial.txt",
+    # "../DeconPeaker/PHENOTYPE.hepatocombined.txt",
+    # "../DeconPeaker/PHENOTYPE.Clusterscoarse.txt",
+    # "../DeconPeaker/PHENOTYPE.Clusters4hepato.txt",
+    # "../DeconPeaker/PHENOTYPE.Clusters4WBC.txt",
+    "../DeconPeaker/PHENOTYPE.Clusters4BTmyelo.txt",
+    # "../DeconPeaker/PHENOTYPE.Clusters4endothelial.txt",
+    row.names = TRUE,
+  quote = FALSE,
+  sep = "\t"
+)
+```
+
+```{bash}
+python deconPeaker.py findctsps -l ATAC-Seq --profile ~/human/rat_singlecell/DeconPeaker/PROFILE.txt --phenotype ~/human/rat_singlecell/DeconPeaker/PHENOTYPE.txt --norm QN -t 12 -o ~/human/rat_singlecell/DeconPeaker/
+
+perl -ne 'if ($. > 1){$_ =~ s/^chr//}; print' < PROFILE_signature_matrix.xls > PROFILE_signature_matrix.wochr.xls
+
+python deconPeaker.py deconvolution -l ATAC-Seq --mixture ~/human/rat_singlecell/DeconPeaker/MIXTURE.yaml --pure ~/human/rat_singlecell/DeconPeaker/findctsps/PROFILE_signature_matrix.wochr.xls -f BAM --method SIMPLS --pvalue TRUE -t 12 -o ~/human/rat_singlecell/DeconPeaker/
+```
+
+`Clusterscoarse` is most reliable.
+Subdivide each coarse proportion according to
+`Clusters2WBC`, `Clusters2stellate` and `Clusters2endothelial`.
+
+empirical noise
+
+```{r}
+foo = output[, -c(1:3)]
+cg = colnames(foo)
+g = sub("\\..*", "", cg)
+foo = preprocessCore::normalize.quantiles(as.matrix(foo))
+colnames(foo) = cg
+# for (i in unique(g)) {
+#   foo[, g == i] = foo[, g == i] - rowMeans(foo[, g == i])
+# }
+# goo = rowSds(foo)
+goo = sqrt(rowMeans(
+  sapply(
+    unique(g),
+    function (i) { rowVars(foo[, g == i]) })))
+
+outputnoise = output[, 1:3]
+outputnoise$noiseSD = goo
+write.table(
+  outputnoise,
+  file = "../DeconPeaker/NOISE.txt",
+  row.names = FALSE,
+  quote = FALSE,
+  sep = "\t"
+)
+```
+
+Regression by myself
+
+```{r}
+library(pls)
+
+for (radixsig in
+     c("Clusters2endothelial", "Clusters2stellate", "Clusters2WBC",
+       "Clusterscoarse",
+       "hepatocombined")) {
+  for (radixmix in c("20200203", "20201104")) {
+    print(paste(radixsig, radixmix))
+    sig = read.table(
+      paste0("../DeconPeaker/findctsps.",
+             radixsig,
+             "/PROFILE_signature_matrix.wochr.xls"),
+      header = TRUE)
+    mix = read.table(
+      paste0("../DeconPeaker/deconvolution.",
+             radixsig,
+             ".",
+             radixmix,
+             "/mixed_sample_profile_profile.xls"),
+      header = TRUE)
+    foo = read.table(
+      "../DeconPeaker/NOISE.txt",
+      header = TRUE)
+    foo$chrom = sub("^chr", "", foo$chrom)
+    noise = sig[, 1:3]
+    noise = dplyr::left_join(
+      noise,
+      foo,
+      by = c("chrom", "start", "end"))
+    all(sig$chrom == mix$chrom)
+    all(sig$start == mix$start)
+    all(sig$end   == mix$end)
+    sig   = sig[, -c(1:3)]
+    mix   = mix[, -c(1:3)]
+    noise = noise[, -c(1:3)]
+    
+    X = as.matrix(sig)
+    Y = as.matrix(mix)
+    # X_norm <- as.matrix((X - mean(X)) / sd(as.vector(X)))
+    # Y_norm <- as.matrix((Y - mean(Y)) / sd(Y))
+    # I don't agree to centralize
+    # X_norm <- as.matrix((X - mean(X)))
+    # Y_norm <- as.matrix((Y - mean(Y)))
+    X_norm <- as.matrix(X)
+    Y_norm <- as.matrix(Y)
+    
+    # plot(rowSds(X_norm), noise)
+    # plot(
+    #   log10(rowMeans(X_norm)),
+    #   rowSds(X_norm) / rowMeans(X_norm))
+    # plot(
+    #   log10(rowMeans(X_norm)),
+    #   noise / rowMeans(X_norm))
+    
+    w = noise
+    X_norm <- X_norm / w
+    Y_norm <- Y_norm / w
+    
+    model <- mvr(
+      Y_norm ~ X_norm,
+      ncol(X_norm), # As all components are used, actually identical to lm
+      scale = FALSE,
+      validation = 'CV',
+      center = FALSE,
+      method = 'simpls')
+    # model <- lm(Y_norm ~ X_norm + 0)
+    coeffs = coef(model)
+    # coeffs =
+    #   apply(
+    #     Y_norm,
+    #     2,
+    #     function (y) {coef(MASS::rlm(y ~ X_norm + 0))})
+    coeffs = array(
+      coeffs,
+      dim = dim(coeffs)[1:2],
+      dimnames = dimnames(coeffs)[1:2])
+    coeffs[coeffs < 0] = 0
+    coeffs = coeffs /
+      matrix(colSums(coeffs),
+             nrow = nrow(coeffs),
+             ncol = ncol(coeffs),
+             byrow = TRUE)
+    coeffs = as.data.frame(coeffs)
+    coeffs$celltype = rownames(coeffs)
+    p1 =
+      ggplot(
+        data =
+          tidyr::pivot_longer(
+            as.data.frame(coeffs),
+            cols = -"celltype",
+            names_to = "Sample",
+            values_to = "Proportion"),
+        aes(x = Sample,
+            y = Proportion)) +
+      geom_col(
+        aes(fill = celltype)
+      ) +
+      theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5)) +
+      labs(x = NULL)
+    ggsave(
+      paste0("../DeconPeaker/deconvolution.",
+             radixsig,
+             ".",
+             radixmix,
+             "/my-Results.png"),
+      p1,
+      width = 6, height = 4)
+    write.table(coeffs,
+                paste0("../DeconPeaker/deconvolution.",
+                       radixsig,
+                       ".",
+                       radixmix,
+                       "/my-Results.txt"),
+                sep = "\t",
+                quote = FALSE,
+                row.names = FALSE)
+  }
+}
+```
+
+Regression with Bisque correction
+
+```{r}
+proj6$Clusters4BTmyelo = NA
+proj6$Clusters4BTmyelo[proj6$Clusters4res05 %in% paste0("C", 8:9)] = "myelo"
+proj6$Clusters4BTmyelo[proj6$Clusters4res05 %in% paste0("C", 10)] = "T_NK"
+proj6$Clusters4BTmyelo[proj6$Clusters4res05 %in% paste0("C", 11)] = "B"
+```
+
+```{r}
+for (radixsig in c(
+  # "Clusters2endothelial",
+  # "Clusters2stellate",
+  # "Clusters2WBC",
+  "Clusterscoarse",
+  # "hepatocombined"
+  "Clusters4endothelial",
+  # "Clusters4hepato",
+  "Clusters4WBC",
+  "Clusters4BTmyelo"
+)) {
+  print(radixsig)
+  sig = read.table(
+    paste0("../DeconPeaker/findctsps.",
+           radixsig,
+           "/PROFILE_signature_matrix.wochr.xls"),
+    header = TRUE)
+  foo = read.table(
+    "../DeconPeaker/NOISE.txt",
+    header = TRUE)
+  foo$chrom = sub("^chr", "", foo$chrom)
+  noise = sig[, 1:3]
+  noise = dplyr::left_join(
+    noise,
+    foo,
+    by = c("chrom", "start", "end"))
+  
+  mix = lapply(
+    c("20200203", "20201104", "20210107"),
+    function (radixmix) {
+      x = read.table(
+        paste0("../DeconPeaker/deconvolution.",
+               radixsig,
+               ".",
+               radixmix,
+               "/mixed_sample_profile_profile.xls"),
+        header = TRUE)
+      print(all(sig$chrom == x$chrom))
+      print(all(sig$start == x$start))
+      print(all(sig$end   == x$end))
+      x = x[, -c(1:3)]
+      return(x)
+    }
+  )
+  mix = do.call(cbind, mix)
+  # TODO!!! quantile-normalization actually should be done genome-wide
+  # quantile-normalization for the differential features can diminish signal
+  x = colnames(mix)
+  mix =
+    preprocessCore::normalize.quantiles(as.matrix(mix))
+  colnames(mix) = x
+  
+  sig   = sig[, -c(1:3)]
+  noise = noise[, -c(1:3)]
+  
+  celltypecount = 
+    rbind(
+      # table(proj6$Clusters2, proj6$Sample),
+      table(proj6$Clusters4res05, proj6$Sample),
+      table(proj6$Clusterscoarse2, proj6$Sample),
+      table(proj6$Clusters4BTmyelo, proj6$Sample))
+  rownames(celltypecount) =
+    sub("endothelial cell", "endothelial",
+        sub("hepatocyte", "hepato",
+            rownames(celltypecount)))
+  celltypecount = celltypecount[colnames(sig), ]
+  celltypecount = celltypecount /
+    matrix(colSums(celltypecount),
+           nrow = nrow(celltypecount),
+           ncol = ncol(celltypecount),
+           byrow = TRUE)
+  # pseudomix = as.matrix(sig) %*% celltypecount
+  pseudomix = as.matrix(sig) %*% 
+    diag(1 / qncountfactor[colnames(sig)]) %*%
+    # diag(1 / qncountfactorarithmeticmean[colnames(sig)]) %*%
+    celltypecount
+    # celltypecount %*%
+    # diag(1 / qncountfactor[colnames(celltypecount)])
+  colnames(pseudomix) = colnames(celltypecount)
+  pseudomix = pseudomix[, colnames(pseudomix) %in% colnames(mix)]
+  
+  toscale = exp(rowMeans(log(mix[, colnames(pseudomix)] / pseudomix)))
+  # median 906.5 = #nuclei in batch experiment (in scale of snATAC exp 1)
+  # central part is linear in log-scale
+  toscalemax = quantile(toscale, 0.75)^2 / quantile(toscale, 0.5)
+  toscalemin = quantile(toscale, 0.25)^2 / quantile(toscale, 0.5)
+  toscale = pmin(toscale, toscalemax)
+  toscale = pmax(toscale, toscalemin)
+  
+  X = as.matrix(sig)
+  Y = as.matrix(mix / toscale)
+  # X_norm <- as.matrix((X - mean(X)) / sd(as.vector(X)))
+  # Y_norm <- as.matrix((Y - mean(Y)) / sd(Y))
+  # I don't agree to centralize
+  # X_norm <- as.matrix((X - mean(X)))
+  # Y_norm <- as.matrix((Y - mean(Y)))
+  X_norm <- as.matrix(X)
+  Y_norm <- as.matrix(Y)
+  
+  # plot(rowSds(X_norm), noise)
+  # plot(
+  #   log10(rowMeans(X_norm)),
+  #   rowSds(X_norm) / rowMeans(X_norm))
+  # plot(
+  #   log10(rowMeans(X_norm)),
+  #   noise / rowMeans(X_norm))
+  
+  w = noise
+  # central part is linear in log-scale
+  wmax = quantile(w, 0.75)^2 / quantile(w, 0.5)
+  wmin = quantile(w, 0.25)^2 / quantile(w, 0.5)
+  w = pmin(w, wmax)
+  w = pmax(w, wmin)
+  X_norm <- X_norm / w
+  Y_norm <- Y_norm / w
+  
+  # model <- mvr(
+  #   Y_norm ~ X_norm,
+  #   ncol(X_norm), # As all components are used, actually identical to lm
+  #   scale = FALSE,
+  #   validation = 'CV',
+  #   center = FALSE,
+  #   method = 'simpls')
+  # model <- lm(Y_norm ~ X_norm + 0)
+  # coeffs = coef(model)
+  # coeffs = array(
+  #   coeffs,
+  #   dim = dim(coeffs)[1:2],
+  #   dimnames = dimnames(coeffs)[1:2])
+
+  coeffs =
+    apply(
+      Y_norm,
+      2,
+      function (y) {coef(MASS::rlm(y ~ X_norm + 0))})
+  rownames(coeffs) = sub("^X_norm", "", rownames(coeffs))
+  coeffs[coeffs < 0] = 0
+  
+  x = rownames(coeffs)
+  coeffs = diag(qncountfactor[x]) %*% coeffs
+  # coeffs = diag(qncountfactoradditivemean[x]) %*% coeffs
+  rownames(coeffs) = x
+  summary(colSums(coeffs))
+  # 1 for qncountfactor
+  # 1.067-1.130 for qncountfactorarithmeticmean qncountfactoradditivemean; why not 1
+
+  coeffs = coeffs /
+    matrix(colSums(coeffs),
+           nrow = nrow(coeffs),
+           ncol = ncol(coeffs),
+           byrow = TRUE)
+  coeffs = as.data.frame(coeffs)
+  coeffs$celltype = rownames(coeffs)
+  cbPalette <- c("#000000", "#999999", "#E69F00",
+                 "#56B4E9", "#009E73", "#F0E442",
+                 "#0072B2", "#D55E00", "#CC79A7")
+  dataplot = tidyr::pivot_longer(
+    as.data.frame(coeffs),
+    cols = -"celltype",
+    names_to = "Sample",
+    values_to = "Proportion")
+  dataplot$Sample = factor(
+    dataplot$Sample,
+    levels = c(
+      "m154207", "m154208", "m154209", "m154210", 
+      "m167203", "m167204", "m167205", "m167206", 
+      "m168101", "m168102", "m168103", "m168104", 
+      "m135210", "m135211", "m158110", "m158111", 
+      "m154211", "m154212", "m154213", "m154214", 
+      "m167108", "m167109", "m167110", "m167111", 
+      "m152202", "m157103", "m158108", "m158109"))
+  dataplot$celltype = factor(
+    dataplot$celltype,
+    levels = c(
+      # adjvar04Leiden_adjvar01Leiden Clusters4res05
+      "hepato",
+      "stellate",
+      "endothelial", paste0("C", 13:14),
+      "WBC", "B", "T_NK", "myelo", paste0("C", c(11, 10, 8, 9))
+      # # adjvar04Leiden_adjvar01Leiden Clusters4res02
+      # "hepato", paste0("C", c(1, 3, 2)),
+      # "stellate",
+      # "endothelial",
+      # "WBC", paste0("C", c(5, 4))
+      ))
+  p1 =
+    ggplot(
+      data = dataplot,
+      aes(x = Sample,
+          y = Proportion)) +
+    geom_col(
+      aes(fill = celltype)
+    ) +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5)) +
+    labs(x = NULL) +
+    scale_fill_manual(values=cbPalette)
+  ggsave(
+    paste0("../DeconPeaker/deconvolution.",
+           radixsig,
+           ".",
+           # "20200203_20201104.QN",
+           "combined",
+           "/my-Results-Bisque-rlm.png"),
+    p1,
+    width = 6, height = 4)
+  write.table(coeffs,
+              paste0("../DeconPeaker/deconvolution.",
+                     radixsig,
+                     ".",
+                     # "20200203_20201104.QN",
+                     "combined",
+                     "/my-Results-Bisque-rlm.txt"),
+              sep = "\t",
+              quote = FALSE,
+              row.names = FALSE)
+}
+```
+
+```{r}
+result = read.table(
+  paste0("../DeconPeaker/Clusters4res05/deconvolution.",
+         "Clusterscoarse",
+         ".",
+         "combined",
+         "/my-Results-Bisque-rlm.txt"),
+  header = TRUE)
+rownames(result) = result$celltype
+result = as.matrix(result[, colnames(result) != "celltype"])
+
+foo = read.table(
+  paste0("../DeconPeaker/deconvolution.",
+         "Clusters2endothelial",
+         ".",
+         "20200203_20201104.QN",
+         "/my-Results-Bisque-rlm.txt"),
+  header = TRUE)
+rownames(foo) = foo$celltype
+foo = as.matrix(foo[, colnames(foo) != "celltype"])
+foo = foo[grep("^C[1-9]", rownames(foo)), ]
+x = result["endothelial", ] / colSums(foo)
+summary(x)
+foo = foo *
+  matrix(x,
+         nrow = nrow(foo),
+         ncol = ncol(foo),
+         byrow = TRUE)
+result = rbind(
+  result[rownames(result) != "endothelial", ],
+  foo)
+
+foo = read.table(
+  paste0("../DeconPeaker/deconvolution.",
+         "Clusters2stellate",
+         ".",
+         "20200203_20201104.QN",
+         "/my-Results-Bisque-rlm.txt"),
+  header = TRUE)
+rownames(foo) = foo$celltype
+foo = as.matrix(foo[, colnames(foo) != "celltype"])
+foo = foo[grep("^C[1-9]", rownames(foo)), ]
+x = result["stellate", ] / colSums(foo)
+summary(x)
+foo = foo *
+  matrix(x,
+         nrow = nrow(foo),
+         ncol = ncol(foo),
+         byrow = TRUE)
+result = rbind(
+  result[rownames(result) != "stellate", ],
+  foo)
+
+foo = read.table(
+  paste0("../DeconPeaker/Clusters4res05/deconvolution.",
+         "Clusters4WBC",
+         ".",
+         "combined",
+         "/my-Results-Bisque-rlm.txt"),
+  header = TRUE)
+rownames(foo) = foo$celltype
+foo = as.matrix(foo[, colnames(foo) != "celltype"])
+foo = foo[grep("^C[1-9]", rownames(foo)), ]
+x = result["WBC", ] / colSums(foo)
+summary(x)
+foo = foo *
+  matrix(x,
+         nrow = nrow(foo),
+         ncol = ncol(foo),
+         byrow = TRUE)
+result = rbind(
+  result[rownames(result) != "WBC", ],
+  foo)
+
+result = result[order(rownames(result)), ]
+```
+
+cross check, bulk vs snATAC-seq
+
+```{r}
+celltypecount = rbind(
+  table(proj6$Clusterscoarse2, proj6$Sample),
+  table(proj6$Clusters4res05, proj6$Sample))
+rownames(celltypecount) =
+  sub("endothelial cell", "endothelial",
+      sub("hepatocyte", "hepato",
+          rownames(celltypecount)))
+celltypecount = celltypecount[rownames(result), ]
+celltypecount = celltypecount /
+  matrix(colSums(celltypecount),
+         nrow = nrow(celltypecount),
+         ncol = ncol(celltypecount),
+         byrow = TRUE)
+celltypecount = as.data.frame((celltypecount))
+celltypecount$celltype = rownames(celltypecount)
+celltypecount = tidyr::pivot_longer(
+  celltypecount,
+  cols = -celltype,
+  names_to = "Sample",
+  values_to = "Proportion")
+
+result = tidyr::pivot_longer(
+  result,
+  cols = -celltype,
+  names_to = "Sample",
+  values_to = "Proportion")
+
+plotdata = dplyr::left_join(
+  celltypecount,
+  result,
+  by = c("celltype", "Sample"),
+  suffix = c(".sn", ".bulk")
+)
+summary(plotdata$Proportion.bulk / plotdata$Proportion.sn)
+# Clusterscoarse
+#  Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+# 0.5727  0.8544  0.9351  1.0391  1.1369  2.5505 
+# Clusters4WBC
+#   Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+# 0.3867  0.8192  0.9796  1.1254  1.3944  2.2300 
+
+ggplot(
+  data = plotdata,
+  aes(x = Proportion.sn,
+      y = Proportion.bulk)) + 
+  geom_point(
+    aes(col = celltype)) +
+  scale_x_log10() +
+  scale_y_log10() +
+  geom_abline(
+    aes(intercept = 0,
+        slope = 1))
+```
+
+PCA of cell type compositon
+
+```{r}
+result = as.matrix(result)
+result = result - rowMeans(result)
+# result = result / rowSds(result)
+x = svd(result)
+plot(x$d)
+plotdata = as.data.frame(x$v)
+plotdata$Sample = colnames(result)
+plotdata$group = NA
+plotdata$group[plotdata$Sample %in%
+                 c("m154207", "m154208", "m154209", "m154210")] = 1
+plotdata$group[plotdata$Sample %in%
+                 c("m167203", "m167204", "m167205", "m167206")] = 2
+plotdata$group[plotdata$Sample %in%
+                 c("m168101", "m168102", "m168103", "m168104")] = 3
+plotdata$group[plotdata$Sample %in%
+                 c("m135210", "m135211", "m158110", "m158111")] = 4
+plotdata$group[plotdata$Sample %in%
+                 c("m154211", "m154212", "m154213", "m154214")] = 5
+plotdata$group[plotdata$Sample %in%
+                 c("m167108", "m167109", "m167110", "m167111")] = 6
+plotdata$group[plotdata$Sample %in%
+                 c("m152202", "m157103", "m158108", "m158109")] = 7
+ggplot(
+  data = plotdata,
+  aes(x = V1,
+      y =V2)) +
+  geom_text(
+    aes(
+      label = group,
+      col = factor(group)))
+```
