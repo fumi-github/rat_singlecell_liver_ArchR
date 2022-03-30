@@ -137,7 +137,7 @@ No:  150Ktopvar adjvar02 adjvar05
 ArchRBrowser(proj2)
 ```
 
-## 
+## Clustering with taylored parameter
 
 ```{r}
 proj6 = proj5b
