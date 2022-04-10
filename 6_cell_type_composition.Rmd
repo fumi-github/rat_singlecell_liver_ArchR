@@ -18,8 +18,9 @@ quantile(xrowMeans, c(0.25, 0.5, 0.75))
 #        25%        50%        75% 
 # 0.01317084 0.02490349 0.04995837
 # 0.01183432 0.02253072 0.04574420
+# 0.01380643 0.02567997 0.05101477
 quantile(xrowMeans, seq(0.9, 1, 0.01))
-xmax = quantile(xrowMeans, 0.99) # 0.6837174 0.6525095
+xmax = quantile(xrowMeans, 0.99) # 0.6837174 0.6525095 0.6570482
 idx = which(xrowMeans < xmax)
 x = x[idx, ]
 
@@ -29,7 +30,8 @@ output = data.frame(
   end = end(x)
 )
 # cg = proj4@projectMetadata$GroupCoverages$Clusters2$Params$cellGroups
-cg = proj6@projectMetadata$GroupCoverages$Clusters4res05$Params$cellGroups
+# cg = proj6@projectMetadata$GroupCoverages$Clusters4res05$Params$cellGroups
+cg = proj6@projectMetadata$GroupCoverages$Clusters4res06$Params$cellGroups
 # cg = proj6@projectMetadata$GroupCoverages$Clusters4res02$Params$cellGroups
 for (g in names(cg)) {
   for (s in names(cg[[g]])) {
@@ -70,7 +72,7 @@ ggplot(
 ```
 
 * imean
-  + The correct scale for is log; Majority of data within 0.5-10
+  + The correct scale is log; Majority of data within 0.5-10
 * coefficient of variation isd / imean
   + 0.5-1
   + biological noise + technical error
