@@ -1,11 +1,13 @@
 ---
-title: "cell type composition"
+title: "Infer cell type composition of bulk tissue samples"
 output: html_notebook
 ---
 
-Estimate cell type composition of bulk ATAC-seq by using DeconPeaker
+# Generate pseudo-bulk of pure cell types
 
 For proper quantile normalization, include all peaks from genome.
+Pseudo-bulk is saved as `output`
+TODO: change variable name
 
 ```{r}
 x = getMatrixFromProject(proj6, useMatrix = "PeakMatrix")
@@ -42,6 +44,71 @@ for (g in names(cg)) {
   }
 }
 ```
+
+# Estimate cell type composition of bulk ATAC-seq by using DeconPeaker
+
+Write DeconPeaker input file PROFILE.txt
+
+```{r}
+write.table(
+  output,
+  file = "../DeconPeaker/PROFILE.txt",
+  row.names = FALSE,
+  quote = FALSE,
+  sep = "\t"
+)
+```
+
+Write DeconPeaker input files PHENOTYPE.txt
+
+```{r}
+cg = colnames(output)[-c(1:3)]
+g = sub("\\..*", "", cg)
+# Clusters4res06
+g[g %in% paste0("C", 1:7)] = "hepato"
+# g[g %in% paste0("C", c(10, 14:16))] = "WBC"
+g[g %in% paste0("C", c(10, 16))] = "myelo"
+g[g %in% paste0("C", 14)] = "T_NK"
+g[g %in% paste0("C", 15)] = "B"
+g[g %in% paste0("C", 8:9)] = "stellate"
+g[g %in% paste0("C", 11:13)] = "endothelial"
+
+PHENOTYPE =
+  sapply(
+    unique(g),
+    function (x) {2 - (g == x)}
+  )
+PHENOTYPE = as.data.frame(t(PHENOTYPE))
+colnames(PHENOTYPE) = cg
+write.table(
+  PHENOTYPE,
+  file =
+    # "../DeconPeaker/PHENOTYPE.Clusterscoarse.txt",
+    # "../DeconPeaker/PHENOTYPE.Clusters4hepato.txt",
+    # "../DeconPeaker/PHENOTYPE.Clusters4WBC.txt",
+    "../DeconPeaker/PHENOTYPE.Clusters4BTmyelo.txt",
+    # "../DeconPeaker/PHENOTYPE.Clusters4endothelial.txt",
+    row.names = TRUE,
+  quote = FALSE,
+  sep = "\t"
+)
+```
+
+Run DeconPeaker.
+
+```{bash}
+python deconPeaker.py findctsps -l ATAC-Seq --profile ~/human/rat_singlecell/DeconPeaker/PROFILE.txt --phenotype ~/human/rat_singlecell/DeconPeaker/PHENOTYPE.txt --norm QN -t 12 -o ~/human/rat_singlecell/DeconPeaker/
+
+perl -ne 'if ($. > 1){$_ =~ s/^chr//}; print' < PROFILE_signature_matrix.xls > PROFILE_signature_matrix.wochr.xls
+
+python deconPeaker.py deconvolution -l ATAC-Seq --mixture ~/human/rat_singlecell/DeconPeaker/MIXTURE.yaml --pure ~/human/rat_singlecell/DeconPeaker/findctsps/PROFILE_signature_matrix.wochr.xls -f BAM --method SIMPLS --pvalue TRUE -t 12 -o ~/human/rat_singlecell/DeconPeaker/
+```
+
+`Clusterscoarse` is most reliable.
+Subdivide each coarse proportion according to
+`Clusters2WBC`, `Clusters2stellate` and `Clusters2endothelial`.
+
+# Inspect pseudo-bulk of pure cell types
 
 Check the peak matrix aggregated by groups.
 
@@ -122,18 +189,6 @@ ggplot(
     aes(label = label),
     size = 2)
 dataplot[, c("V1", "V2", "label")]
-```
-
-Write DeconPeaker input files.
-
-```{r}
-write.table(
-  output,
-  file = "../DeconPeaker/PROFILE.txt",
-  row.names = FALSE,
-  quote = FALSE,
-  sep = "\t"
-)
 ```
 
 Quantile normalization of pseudo bulks by myself and
@@ -258,51 +313,7 @@ names(x) = "B"
 qncountfactor = c(qncountfactor, x)
 ```
 
-
-```{r}
-cg = colnames(output)[-c(1:3)]
-g = sub("\\..*", "", cg)
-# Clusters4res06
-g[g %in% paste0("C", 1:7)] = "hepato"
-# g[g %in% paste0("C", c(10, 14:16))] = "WBC"
-g[g %in% paste0("C", c(10, 16))] = "myelo"
-g[g %in% paste0("C", 14)] = "T_NK"
-g[g %in% paste0("C", 15)] = "B"
-g[g %in% paste0("C", 8:9)] = "stellate"
-g[g %in% paste0("C", 11:13)] = "endothelial"
-
-PHENOTYPE =
-  sapply(
-    unique(g),
-    function (x) {2 - (g == x)}
-  )
-PHENOTYPE = as.data.frame(t(PHENOTYPE))
-colnames(PHENOTYPE) = cg
-write.table(
-  PHENOTYPE,
-  file =
-    # "../DeconPeaker/PHENOTYPE.Clusterscoarse.txt",
-    # "../DeconPeaker/PHENOTYPE.Clusters4hepato.txt",
-    # "../DeconPeaker/PHENOTYPE.Clusters4WBC.txt",
-    "../DeconPeaker/PHENOTYPE.Clusters4BTmyelo.txt",
-    # "../DeconPeaker/PHENOTYPE.Clusters4endothelial.txt",
-    row.names = TRUE,
-  quote = FALSE,
-  sep = "\t"
-)
-```
-
-```{bash}
-python deconPeaker.py findctsps -l ATAC-Seq --profile ~/human/rat_singlecell/DeconPeaker/PROFILE.txt --phenotype ~/human/rat_singlecell/DeconPeaker/PHENOTYPE.txt --norm QN -t 12 -o ~/human/rat_singlecell/DeconPeaker/
-
-perl -ne 'if ($. > 1){$_ =~ s/^chr//}; print' < PROFILE_signature_matrix.xls > PROFILE_signature_matrix.wochr.xls
-
-python deconPeaker.py deconvolution -l ATAC-Seq --mixture ~/human/rat_singlecell/DeconPeaker/MIXTURE.yaml --pure ~/human/rat_singlecell/DeconPeaker/findctsps/PROFILE_signature_matrix.wochr.xls -f BAM --method SIMPLS --pvalue TRUE -t 12 -o ~/human/rat_singlecell/DeconPeaker/
-```
-
-`Clusterscoarse` is most reliable.
-Subdivide each coarse proportion according to
-`Clusters2WBC`, `Clusters2stellate` and `Clusters2endothelial`.
+# Infer cell type composition of bulk samples
 
 empirical noise
 
