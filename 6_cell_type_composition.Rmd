@@ -88,6 +88,7 @@ write.table(
     # "../DeconPeaker/PHENOTYPE.Clusters4WBC.txt",
     "../DeconPeaker/PHENOTYPE.Clusters4BTmyelo.txt",
     # "../DeconPeaker/PHENOTYPE.Clusters4endothelial.txt",
+    # "../DeconPeaker/PHENOTYPE.Clusters4stellate.txt",
     row.names = TRUE,
   quote = FALSE,
   sep = "\t"
