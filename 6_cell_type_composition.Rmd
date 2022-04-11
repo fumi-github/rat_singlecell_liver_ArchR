@@ -149,7 +149,8 @@ colnames(fooqn) = cg
 
 cgcount =
   unlist(lapply(
-    proj6@projectMetadata$GroupCoverages$Clusters4res05$Params$cellGroups,
+    # proj6@projectMetadata$GroupCoverages$Clusters4res05$Params$cellGroups,
+    proj6@projectMetadata$GroupCoverages$Clusters4res06$Params$cellGroups,
     function (g) { lapply(g, length) }))
 all(sub("\\._\\.", ".", cg) == names(cgcount))
 
@@ -187,72 +188,72 @@ qncountfactor = exp(a0$coefficients)
 qncountfactor = c(1, qncountfactor)
 names(qncountfactor)[1] = sunique[1]
 plot(qncountfactor[gunique])
+ 
+# qncountfactoradditivemean = qncountfactor
+# x = mean(qncountfactoradditivemean[paste0("C", 1:7)]) # 165.0143903
+# names(x) = "hepato"
+# qncountfactoradditivemean = c(qncountfactoradditivemean, x)
+# x = mean(qncountfactoradditivemean[paste0("C", 8:11)]) # 399.1505866
+# names(x) = "WBC"
+# qncountfactoradditivemean = c(qncountfactoradditivemean, x)
+# x = mean(qncountfactoradditivemean[paste0("C", 12)]) # 308.9983541
+# names(x) = "stellate"
+# qncountfactoradditivemean = c(qncountfactoradditivemean, x)
+# x = mean(qncountfactoradditivemean[paste0("C", 13:14)]) # 525.2607770
+# names(x) = "endothelial"
+# qncountfactoradditivemean = c(qncountfactoradditivemean, x)
+# x = mean(qncountfactoradditivemean[paste0("C", 8:9)])
+# names(x) = "myelo"
+# qncountfactoradditivemean = c(qncountfactoradditivemean, x)
+# x = mean(qncountfactoradditivemean[paste0("C", 10)])
+# names(x) = "T_NK"
+# qncountfactoradditivemean = c(qncountfactoradditivemean, x)
+# x = mean(qncountfactoradditivemean[paste0("C", 11)])
+# names(x) = "B"
+# qncountfactoradditivemean = c(qncountfactoradditivemean, x)
+# 
+# qncountfactorarithmeticmean = qncountfactor
+# x = 1/mean(1/qncountfactorarithmeticmean[paste0("C", 1:7)]) # 148.1783945
+# names(x) = "hepato"
+# qncountfactorarithmeticmean = c(qncountfactorarithmeticmean, x)
+# x = 1/mean(1/qncountfactorarithmeticmean[paste0("C", 8:11)]) # 372.2661055
+# names(x) = "WBC"
+# qncountfactorarithmeticmean = c(qncountfactorarithmeticmean, x)
+# x = 1/mean(1/qncountfactorarithmeticmean[paste0("C", 12)]) # 308.9983541
+# names(x) = "stellate"
+# qncountfactorarithmeticmean = c(qncountfactorarithmeticmean, x)
+# x = 1/mean(1/qncountfactorarithmeticmean[paste0("C", 13:14)]) # 460.6685416
+# names(x) = "endothelial"
+# qncountfactorarithmeticmean = c(qncountfactorarithmeticmean, x)
+# x = 1/mean(1/qncountfactorarithmeticmean[paste0("C", 8:9)])
+# names(x) = "myelo"
+# qncountfactorarithmeticmean = c(qncountfactorarithmeticmean, x)
+# x = 1/mean(1/qncountfactorarithmeticmean[paste0("C", 10)])
+# names(x) = "T_NK"
+# qncountfactorarithmeticmean = c(qncountfactorarithmeticmean, x)
+# x = 1/mean(1/qncountfactorarithmeticmean[paste0("C", 11)])
+# names(x) = "B"
+# qncountfactorarithmeticmean = c(qncountfactorarithmeticmean, x)
 
-qncountfactoradditivemean = qncountfactor
-x = mean(qncountfactoradditivemean[paste0("C", 1:7)]) # 165.0143903
-names(x) = "hepato"
-qncountfactoradditivemean = c(qncountfactoradditivemean, x)
-x = mean(qncountfactoradditivemean[paste0("C", 8:11)]) # 399.1505866
-names(x) = "WBC"
-qncountfactoradditivemean = c(qncountfactoradditivemean, x)
-x = mean(qncountfactoradditivemean[paste0("C", 12)]) # 308.9983541
-names(x) = "stellate"
-qncountfactoradditivemean = c(qncountfactoradditivemean, x)
-x = mean(qncountfactoradditivemean[paste0("C", 13:14)]) # 525.2607770
-names(x) = "endothelial"
-qncountfactoradditivemean = c(qncountfactoradditivemean, x)
-x = mean(qncountfactoradditivemean[paste0("C", 8:9)])
-names(x) = "myelo"
-qncountfactoradditivemean = c(qncountfactoradditivemean, x)
-x = mean(qncountfactoradditivemean[paste0("C", 10)])
-names(x) = "T_NK"
-qncountfactoradditivemean = c(qncountfactoradditivemean, x)
-x = mean(qncountfactoradditivemean[paste0("C", 11)])
-names(x) = "B"
-qncountfactoradditivemean = c(qncountfactoradditivemean, x)
-
-qncountfactorarithmeticmean = qncountfactor
-x = 1/mean(1/qncountfactorarithmeticmean[paste0("C", 1:7)]) # 148.1783945
-names(x) = "hepato"
-qncountfactorarithmeticmean = c(qncountfactorarithmeticmean, x)
-x = 1/mean(1/qncountfactorarithmeticmean[paste0("C", 8:11)]) # 372.2661055
-names(x) = "WBC"
-qncountfactorarithmeticmean = c(qncountfactorarithmeticmean, x)
-x = 1/mean(1/qncountfactorarithmeticmean[paste0("C", 12)]) # 308.9983541
-names(x) = "stellate"
-qncountfactorarithmeticmean = c(qncountfactorarithmeticmean, x)
-x = 1/mean(1/qncountfactorarithmeticmean[paste0("C", 13:14)]) # 460.6685416
-names(x) = "endothelial"
-qncountfactorarithmeticmean = c(qncountfactorarithmeticmean, x)
-x = 1/mean(1/qncountfactorarithmeticmean[paste0("C", 8:9)])
-names(x) = "myelo"
-qncountfactorarithmeticmean = c(qncountfactorarithmeticmean, x)
-x = 1/mean(1/qncountfactorarithmeticmean[paste0("C", 10)])
-names(x) = "T_NK"
-qncountfactorarithmeticmean = c(qncountfactorarithmeticmean, x)
-x = 1/mean(1/qncountfactorarithmeticmean[paste0("C", 11)])
-names(x) = "B"
-qncountfactorarithmeticmean = c(qncountfactorarithmeticmean, x)
-
-x = exp(mean(log(qncountfactor[paste0("C", 1:7)]))) # 156.2552176
+x = exp(mean(log(qncountfactor[paste0("C", 1:7)]))) # 156.2552176 142.3711548
 names(x) = "hepato"
 qncountfactor = c(qncountfactor, x)
-x = exp(mean(log(qncountfactor[paste0("C", 8:11)]))) # 386.3771022
+x = exp(mean(log(qncountfactor[paste0("C", c(10, 14:16))]))) # 386.3771022 388.6064440
 names(x) = "WBC"
 qncountfactor = c(qncountfactor, x)
-x = exp(mean(log(qncountfactor[paste0("C", 12)]))) # 308.9983541
+x = exp(mean(log(qncountfactor[paste0("C", 8:9)]))) # 308.9983541 293.3577647
 names(x) = "stellate"
 qncountfactor = c(qncountfactor, x)
-x = exp(mean(log(qncountfactor[paste0("C", 13:14)]))) # 491.9055967
+x = exp(mean(log(qncountfactor[paste0("C", 11:13)]))) # 491.9055967 510.3695949
 names(x) = "endothelial"
 qncountfactor = c(qncountfactor, x)
-x = exp(mean(log(qncountfactor[paste0("C", 8:9)])))
+x = exp(mean(log(qncountfactor[paste0("C", c(10, 16))])))
 names(x) = "myelo"
 qncountfactor = c(qncountfactor, x)
-x = exp(mean(log(qncountfactor[paste0("C", 10)])))
+x = exp(mean(log(qncountfactor[paste0("C", 14)])))
 names(x) = "T_NK"
 qncountfactor = c(qncountfactor, x)
-x = exp(mean(log(qncountfactor[paste0("C", 11)])))
+x = exp(mean(log(qncountfactor[paste0("C", 15)])))
 names(x) = "B"
 qncountfactor = c(qncountfactor, x)
 ```
@@ -261,24 +262,14 @@ qncountfactor = c(qncountfactor, x)
 ```{r}
 cg = colnames(output)[-c(1:3)]
 g = sub("\\..*", "", cg)
-# # Clusters2
-# g[g %in% paste0("C", 1:9)] = "hepato"
-# g[g %in% paste0("C", 10:12)] = "WBC"
-# g[g %in% paste0("C", 13:14)] = "stellate"
-# g[g %in% paste0("C", 15:17)] = "endothelial"
-# adjvar04Leiden_adjvar01Leiden Clusters4res05
+# Clusters4res06
 g[g %in% paste0("C", 1:7)] = "hepato"
-# g[g %in% paste0("C", 8:11)] = "WBC"
-g[g %in% paste0("C", 8:9)] = "myelo"
-g[g %in% paste0("C", 10)] = "T_NK"
-g[g %in% paste0("C", 11)] = "B"
-g[g %in% paste0("C", 12)] = "stellate"
-g[g %in% paste0("C", 13:14)] = "endothelial"
-# # adjvar04Leiden_adjvar01Leiden Clusters4res02
-# g[g %in% paste0("C", 1:3)] = "hepato"
-# g[g %in% paste0("C", 4:5)] = "WBC"
-# g[g %in% paste0("C", 6)] = "stellate"
-# g[g %in% paste0("C", 7)] = "endothelial"
+# g[g %in% paste0("C", c(10, 14:16))] = "WBC"
+g[g %in% paste0("C", c(10, 16))] = "myelo"
+g[g %in% paste0("C", 14)] = "T_NK"
+g[g %in% paste0("C", 15)] = "B"
+g[g %in% paste0("C", 8:9)] = "stellate"
+g[g %in% paste0("C", 11:13)] = "endothelial"
 
 PHENOTYPE =
   sapply(
@@ -290,12 +281,6 @@ colnames(PHENOTYPE) = cg
 write.table(
   PHENOTYPE,
   file =
-    # "../DeconPeaker/PHENOTYPE.Clusters2.txt",
-    # "../DeconPeaker/PHENOTYPE.Clusters2hepato.txt",
-    # "../DeconPeaker/PHENOTYPE.Clusters2WBC.txt",
-    # "../DeconPeaker/PHENOTYPE.Clusters2stellate.txt",
-    # "../DeconPeaker/PHENOTYPE.Clusters2endothelial.txt",
-    # "../DeconPeaker/PHENOTYPE.hepatocombined.txt",
     # "../DeconPeaker/PHENOTYPE.Clusterscoarse.txt",
     # "../DeconPeaker/PHENOTYPE.Clusters4hepato.txt",
     # "../DeconPeaker/PHENOTYPE.Clusters4WBC.txt",
