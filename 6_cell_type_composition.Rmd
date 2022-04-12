@@ -44,6 +44,8 @@ for (g in names(cg)) {
       rowSums(assay(x)[, idx])
   }
 }
+
+rm(x, xrowMeans, xmax, idx)
 ```
 
 # Estimate cell type composition of bulk ATAC-seq by using DeconPeaker
@@ -108,7 +110,7 @@ python deconPeaker.py deconvolution -l ATAC-Seq --mixture ~/human/rat_singlecell
 
 `Clusterscoarse` is most reliable.
 Subdivide each coarse proportion according to
-`Clusters2WBC`, `Clusters2stellate` and `Clusters2endothelial`.
+`Clusters4WBC`, `Clusters4stellate` and `Clusters4endothelial`.
 
 # Inspect pseudo-bulk of pure cell types
 
