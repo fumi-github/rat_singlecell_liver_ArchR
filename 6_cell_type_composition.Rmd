@@ -6,8 +6,7 @@ output: html_notebook
 # Generate pseudo-bulk of pure cell types
 
 For proper quantile normalization, include all peaks from genome.
-Pseudo-bulk is saved as `output`
-TODO: change variable name
+Pseudo-bulk is saved as `bulkpure`
 
 ```{r}
 x = getMatrixFromProject(proj6, useMatrix = "PeakMatrix")
@@ -28,7 +27,7 @@ x = x[idx, ]
 
 bulkpureGRanges = x@rowRanges
 
-output = data.frame(
+bulkpure = data.frame(
   chrom = seqnames(x),
   start = start(x),
   end = end(x)
@@ -41,7 +40,7 @@ for (g in names(cg)) {
   for (s in names(cg[[g]])) {
     cells = cg[[g]][[s]]
     idx = which(colnames(x) %in% cells)
-    output[, paste0(g, "._.", s)] =
+    bulkpure[, paste0(g, "._.", s)] =
       rowSums(assay(x)[, idx])
   }
 }
@@ -53,7 +52,7 @@ Write DeconPeaker input file PROFILE.txt
 
 ```{r}
 write.table(
-  output,
+  bulkpure,
   file = "../DeconPeaker/PROFILE.txt",
   row.names = FALSE,
   quote = FALSE,
@@ -64,7 +63,7 @@ write.table(
 Write DeconPeaker input files PHENOTYPE.txt
 
 ```{r}
-cg = colnames(output)[-c(1:3)]
+cg = colnames(bulkpure)[-c(1:3)]
 g = sub("\\..*", "", cg)
 # Clusters4res06
 g[g %in% paste0("C", 1:7)] = "hepato"
@@ -121,7 +120,7 @@ Check the peak matrix aggregated by groups.
   + biological noise + technical error
   
 ```{r}
-foo = output[, -c(1:3)]
+foo = bulkpure[, -c(1:3)]
 cg = colnames(foo)
 g = sub("\\..*", "", cg)
 
@@ -150,7 +149,7 @@ Check if major cell types separate.
 
 ```{r}
 # SVD of all features
-foo = output[, -c(1:3)]
+foo = bulkpure[, -c(1:3)]
 foo = foo / matrix(sqrt(colSums(foo^2)), nrow = nrow(foo), ncol = ncol(foo), byrow = TRUE)
 foo = foo * log2(ncol(foo) / rowSums(foo))
 foo = foo - rowMeans(foo)
@@ -195,7 +194,7 @@ Quantile normalization of pseudo bulks by myself and
 obtain approximate nuclei count.
 
 ```{r}
-foo = output[, -c(1:3)]
+foo = bulkpure[, -c(1:3)]
 cg = colnames(foo)
 g = sub("\\..*", "", cg)
 s = sub(".*\\.", "", cg)
@@ -318,7 +317,7 @@ qncountfactor = c(qncountfactor, x)
 empirical noise
 
 ```{r}
-foo = output[, -c(1:3)]
+foo = bulkpure[, -c(1:3)]
 cg = colnames(foo)
 g = sub("\\..*", "", cg)
 foo = preprocessCore::normalize.quantiles(as.matrix(foo))
@@ -332,10 +331,10 @@ goo = sqrt(rowMeans(
     unique(g),
     function (i) { rowVars(foo[, g == i]) })))
 
-outputnoise = output[, 1:3]
-outputnoise$noiseSD = goo
+bulkpurenoise = bulkpure[, 1:3]
+bulkpurenoise$noiseSD = goo
 write.table(
-  outputnoise,
+  bulkpurenoise,
   file = "../DeconPeaker/NOISE.txt",
   row.names = FALSE,
   quote = FALSE,
