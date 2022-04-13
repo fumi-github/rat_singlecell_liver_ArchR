@@ -108,10 +108,6 @@ perl -ne 'if ($. > 1){$_ =~ s/^chr//}; print' < PROFILE_signature_matrix.xls > P
 python deconPeaker.py deconvolution -l ATAC-Seq --mixture ~/human/rat_singlecell/DeconPeaker/MIXTURE.yaml --pure ~/human/rat_singlecell/DeconPeaker/findctsps/PROFILE_signature_matrix.wochr.xls -f BAM --method SIMPLS --pvalue TRUE -t 12 -o ~/human/rat_singlecell/DeconPeaker/
 ```
 
-`Clusterscoarse2` is most reliable.
-Subdivide each coarse proportion according to
-`Clusters4WBC`, `Clusters4stellate` and `Clusters4endothelial`.
-
 # Inspect pseudo-bulk of pure cell types
 
 Check the peak matrix aggregated by groups.
@@ -659,7 +655,7 @@ for (radixsig in c(
       "hepato",
       "stellate", paste0("C", 8:9),
       "endothelial", paste0("C", 11:13),
-      "WBC", "B", "T_NK", "myelo", paste0("C", c(15, 14, 16, 10))
+      "WBC", "B", "T_NK", "myelo", paste0("C", c(15, 14, 10, 16))
       # # adjvar04Leiden_adjvar01Leiden Clusters4res02
       # "hepato", paste0("C", c(1, 3, 2)),
       # "stellate",
@@ -698,10 +694,15 @@ for (radixsig in c(
               row.names = FALSE)
 }
 ```
+# Refine and inspect cell type composition of bulk samples
+
+`Clusterscoarse2` is most reliable.
+Subdivide each coarse proportion according to
+`Clusters4endothelial`, `Clusters4stellate` and `Clusters4WBC`.
 
 ```{r}
 result = read.table(
-  paste0("../DeconPeaker/Clusters4res05/deconvolution.",
+  paste0("../DeconPeaker/deconvolution.",
          "Clusterscoarse2",
          ".",
          "combined",
@@ -712,9 +713,9 @@ result = as.matrix(result[, colnames(result) != "celltype"])
 
 foo = read.table(
   paste0("../DeconPeaker/deconvolution.",
-         "Clusters2endothelial",
+         "Clusters4endothelial",
          ".",
-         "20200203_20201104.QN",
+         "combined",
          "/my-Results-Bisque-rlm.txt"),
   header = TRUE)
 rownames(foo) = foo$celltype
@@ -733,9 +734,9 @@ result = rbind(
 
 foo = read.table(
   paste0("../DeconPeaker/deconvolution.",
-         "Clusters2stellate",
+         "Clusters4stellate",
          ".",
-         "20200203_20201104.QN",
+         "combined",
          "/my-Results-Bisque-rlm.txt"),
   header = TRUE)
 rownames(foo) = foo$celltype
@@ -753,7 +754,7 @@ result = rbind(
   foo)
 
 foo = read.table(
-  paste0("../DeconPeaker/Clusters4res05/deconvolution.",
+  paste0("../DeconPeaker/deconvolution.",
          "Clusters4WBC",
          ".",
          "combined",
@@ -775,13 +776,12 @@ result = rbind(
 
 result = result[order(rownames(result)), ]
 ```
-
-cross check, bulk vs snATAC-seq
+## Cross check, bulk vs snATAC-seq
 
 ```{r}
 celltypecount = rbind(
   table(proj6$Clusterscoarse2, proj6$Sample),
-  table(proj6$Clusters4res05, proj6$Sample))
+  table(proj6$Clusters4res06, proj6$Sample))
 rownames(celltypecount) =
   sub("endothelial cell", "endothelial",
       sub("hepatocyte", "hepato",
@@ -800,15 +800,17 @@ celltypecount = tidyr::pivot_longer(
   names_to = "Sample",
   values_to = "Proportion")
 
-result = tidyr::pivot_longer(
-  result,
+x = as.data.frame(result)
+x$celltype = rownames(x)
+x = tidyr::pivot_longer(
+  x,
   cols = -celltype,
   names_to = "Sample",
   values_to = "Proportion")
 
 plotdata = dplyr::left_join(
   celltypecount,
-  result,
+  x,
   by = c("celltype", "Sample"),
   suffix = c(".sn", ".bulk")
 )
@@ -819,6 +821,9 @@ summary(plotdata$Proportion.bulk / plotdata$Proportion.sn)
 # Clusters4WBC
 #   Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
 # 0.3867  0.8192  0.9796  1.1254  1.3944  2.2300 
+#
+#  Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+# 0.000   0.739   0.946   1.028   1.174   3.524 
 
 ggplot(
   data = plotdata,
