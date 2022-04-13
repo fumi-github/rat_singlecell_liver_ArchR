@@ -838,13 +838,12 @@ ggplot(
         slope = 1))
 ```
 
-PCA of cell type compositon
+## PCA of cell type compositon
 
 ```{r}
-result = as.matrix(result)
-result = result - rowMeans(result)
+x = result - rowMeans(result)
 # result = result / rowSds(result)
-x = svd(result)
+x = svd(x)
 plot(x$d)
 plotdata = as.data.frame(x$v)
 plotdata$Sample = colnames(result)
@@ -866,7 +865,7 @@ plotdata$group[plotdata$Sample %in%
 ggplot(
   data = plotdata,
   aes(x = V1,
-      y =V2)) +
+      y = V2)) +
   geom_text(
     aes(
       label = group,
