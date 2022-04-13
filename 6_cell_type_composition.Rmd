@@ -523,8 +523,11 @@ for (radixsig in c(
     }
   )
   mix = do.call(cbind, mix)
-  # TODO!!! quantile-normalization actually should be done genome-wide
-  # quantile-normalization for the differential features can diminish signal
+  # We here apply quantile-normalization (q-n) to bulk ATAC-seq.
+  # It was not applied by `deconPeaker.py deconvolution`
+  # Because q-n for the differential features can diminish signal,
+  # q-n ideally should be done genome-wide.
+  # However, the computational implementation would be laborious.
   x = colnames(mix)
   mix =
     preprocessCore::normalize.quantiles(as.matrix(mix))
