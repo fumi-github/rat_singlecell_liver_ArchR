@@ -86,7 +86,7 @@ colnames(PHENOTYPE) = cg
 write.table(
   PHENOTYPE,
   file =
-    # "../DeconPeaker/PHENOTYPE.Clusterscoarse.txt",
+    # "../DeconPeaker/PHENOTYPE.Clusterscoarse2.txt",
     # "../DeconPeaker/PHENOTYPE.Clusters4hepato.txt",
     # "../DeconPeaker/PHENOTYPE.Clusters4WBC.txt",
     "../DeconPeaker/PHENOTYPE.Clusters4BTmyelo.txt",
@@ -108,7 +108,7 @@ perl -ne 'if ($. > 1){$_ =~ s/^chr//}; print' < PROFILE_signature_matrix.xls > P
 python deconPeaker.py deconvolution -l ATAC-Seq --mixture ~/human/rat_singlecell/DeconPeaker/MIXTURE.yaml --pure ~/human/rat_singlecell/DeconPeaker/findctsps/PROFILE_signature_matrix.wochr.xls -f BAM --method SIMPLS --pvalue TRUE -t 12 -o ~/human/rat_singlecell/DeconPeaker/
 ```
 
-`Clusterscoarse` is most reliable.
+`Clusterscoarse2` is most reliable.
 Subdivide each coarse proportion according to
 `Clusters4WBC`, `Clusters4stellate` and `Clusters4endothelial`.
 
@@ -168,7 +168,7 @@ ggplot(
 
 # Inspect features selected (above) by DeconPeaker
 dp = read.table(
-  "../DeconPeaker/findctsps.Clusterscoarse/PROFILE_signature_matrix.xls",
+  "../DeconPeaker/findctsps.Clusterscoarse2/PROFILE_signature_matrix.xls",
   sep = "\t",
   header = TRUE)
 ov = GenomicRanges::findOverlaps(
@@ -351,7 +351,7 @@ library(pls)
 
 for (radixsig in
      c("Clusters2endothelial", "Clusters2stellate", "Clusters2WBC",
-       "Clusterscoarse",
+       "Clusterscoarse2",
        "hepatocombined")) {
   for (radixmix in c("20200203", "20201104")) {
     print(paste(radixsig, radixmix))
@@ -481,7 +481,7 @@ for (radixsig in c(
   # "Clusters2endothelial",
   # "Clusters2stellate",
   # "Clusters2WBC",
-  "Clusterscoarse",
+  "Clusterscoarse2",
   # "hepatocombined"
   "Clusters4endothelial",
   # "Clusters4hepato",
@@ -699,7 +699,7 @@ for (radixsig in c(
 ```{r}
 result = read.table(
   paste0("../DeconPeaker/Clusters4res05/deconvolution.",
-         "Clusterscoarse",
+         "Clusterscoarse2",
          ".",
          "combined",
          "/my-Results-Bisque-rlm.txt"),
@@ -810,7 +810,7 @@ plotdata = dplyr::left_join(
   suffix = c(".sn", ".bulk")
 )
 summary(plotdata$Proportion.bulk / plotdata$Proportion.sn)
-# Clusterscoarse
+# Clusterscoarse2
 #  Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
 # 0.5727  0.8544  0.9351  1.0391  1.1369  2.5505 
 # Clusters4WBC
