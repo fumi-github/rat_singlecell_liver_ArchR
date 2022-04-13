@@ -32,10 +32,7 @@ bulkpure = data.frame(
   start = start(x),
   end = end(x)
 )
-# cg = proj4@projectMetadata$GroupCoverages$Clusters2$Params$cellGroups
-# cg = proj6@projectMetadata$GroupCoverages$Clusters4res05$Params$cellGroups
 cg = proj6@projectMetadata$GroupCoverages$Clusters4res06$Params$cellGroups
-# cg = proj6@projectMetadata$GroupCoverages$Clusters4res02$Params$cellGroups
 for (g in names(cg)) {
   for (s in names(cg[[g]])) {
     cells = cg[[g]][[s]]
@@ -201,7 +198,6 @@ colnames(fooqn) = cg
 
 cgcount =
   unlist(lapply(
-    # proj6@projectMetadata$GroupCoverages$Clusters4res05$Params$cellGroups,
     proj6@projectMetadata$GroupCoverages$Clusters4res06$Params$cellGroups,
     function (g) { lapply(g, length) }))
 all(sub("\\._\\.", ".", cg) == names(cgcount))
@@ -240,52 +236,6 @@ qncountfactor = exp(a0$coefficients)
 qncountfactor = c(1, qncountfactor)
 names(qncountfactor)[1] = sunique[1]
 plot(qncountfactor[gunique])
- 
-# qncountfactoradditivemean = qncountfactor
-# x = mean(qncountfactoradditivemean[paste0("C", 1:7)]) # 165.0143903
-# names(x) = "hepato"
-# qncountfactoradditivemean = c(qncountfactoradditivemean, x)
-# x = mean(qncountfactoradditivemean[paste0("C", 8:11)]) # 399.1505866
-# names(x) = "WBC"
-# qncountfactoradditivemean = c(qncountfactoradditivemean, x)
-# x = mean(qncountfactoradditivemean[paste0("C", 12)]) # 308.9983541
-# names(x) = "stellate"
-# qncountfactoradditivemean = c(qncountfactoradditivemean, x)
-# x = mean(qncountfactoradditivemean[paste0("C", 13:14)]) # 525.2607770
-# names(x) = "endothelial"
-# qncountfactoradditivemean = c(qncountfactoradditivemean, x)
-# x = mean(qncountfactoradditivemean[paste0("C", 8:9)])
-# names(x) = "myelo"
-# qncountfactoradditivemean = c(qncountfactoradditivemean, x)
-# x = mean(qncountfactoradditivemean[paste0("C", 10)])
-# names(x) = "T_NK"
-# qncountfactoradditivemean = c(qncountfactoradditivemean, x)
-# x = mean(qncountfactoradditivemean[paste0("C", 11)])
-# names(x) = "B"
-# qncountfactoradditivemean = c(qncountfactoradditivemean, x)
-# 
-# qncountfactorarithmeticmean = qncountfactor
-# x = 1/mean(1/qncountfactorarithmeticmean[paste0("C", 1:7)]) # 148.1783945
-# names(x) = "hepato"
-# qncountfactorarithmeticmean = c(qncountfactorarithmeticmean, x)
-# x = 1/mean(1/qncountfactorarithmeticmean[paste0("C", 8:11)]) # 372.2661055
-# names(x) = "WBC"
-# qncountfactorarithmeticmean = c(qncountfactorarithmeticmean, x)
-# x = 1/mean(1/qncountfactorarithmeticmean[paste0("C", 12)]) # 308.9983541
-# names(x) = "stellate"
-# qncountfactorarithmeticmean = c(qncountfactorarithmeticmean, x)
-# x = 1/mean(1/qncountfactorarithmeticmean[paste0("C", 13:14)]) # 460.6685416
-# names(x) = "endothelial"
-# qncountfactorarithmeticmean = c(qncountfactorarithmeticmean, x)
-# x = 1/mean(1/qncountfactorarithmeticmean[paste0("C", 8:9)])
-# names(x) = "myelo"
-# qncountfactorarithmeticmean = c(qncountfactorarithmeticmean, x)
-# x = 1/mean(1/qncountfactorarithmeticmean[paste0("C", 10)])
-# names(x) = "T_NK"
-# qncountfactorarithmeticmean = c(qncountfactorarithmeticmean, x)
-# x = 1/mean(1/qncountfactorarithmeticmean[paste0("C", 11)])
-# names(x) = "B"
-# qncountfactorarithmeticmean = c(qncountfactorarithmeticmean, x)
 
 x = exp(mean(log(qncountfactor[paste0("C", 1:7)]))) # 156.2552176 142.3711548
 names(x) = "hepato"
@@ -312,7 +262,7 @@ qncountfactor = c(qncountfactor, x)
 
 # Infer cell type composition of bulk samples
 
-empirical noise
+Empirical noise
 
 ```{r}
 foo = bulkpure[, -c(1:3)]
@@ -340,147 +290,12 @@ write.table(
 )
 ```
 
-Regression by myself
-
-```{r}
-library(pls)
-
-for (radixsig in
-     c("Clusters2endothelial", "Clusters2stellate", "Clusters2WBC",
-       "Clusterscoarse2",
-       "hepatocombined")) {
-  for (radixmix in c("20200203", "20201104")) {
-    print(paste(radixsig, radixmix))
-    sig = read.table(
-      paste0("../DeconPeaker/findctsps.",
-             radixsig,
-             "/PROFILE_signature_matrix.wochr.xls"),
-      header = TRUE)
-    mix = read.table(
-      paste0("../DeconPeaker/deconvolution.",
-             radixsig,
-             ".",
-             radixmix,
-             "/mixed_sample_profile_profile.xls"),
-      header = TRUE)
-    foo = read.table(
-      "../DeconPeaker/NOISE.txt",
-      header = TRUE)
-    foo$chrom = sub("^chr", "", foo$chrom)
-    noise = sig[, 1:3]
-    noise = dplyr::left_join(
-      noise,
-      foo,
-      by = c("chrom", "start", "end"))
-    all(sig$chrom == mix$chrom)
-    all(sig$start == mix$start)
-    all(sig$end   == mix$end)
-    sig   = sig[, -c(1:3)]
-    mix   = mix[, -c(1:3)]
-    noise = noise[, -c(1:3)]
-    
-    X = as.matrix(sig)
-    Y = as.matrix(mix)
-    # X_norm <- as.matrix((X - mean(X)) / sd(as.vector(X)))
-    # Y_norm <- as.matrix((Y - mean(Y)) / sd(Y))
-    # I don't agree to centralize
-    # X_norm <- as.matrix((X - mean(X)))
-    # Y_norm <- as.matrix((Y - mean(Y)))
-    X_norm <- as.matrix(X)
-    Y_norm <- as.matrix(Y)
-    
-    # plot(rowSds(X_norm), noise)
-    # plot(
-    #   log10(rowMeans(X_norm)),
-    #   rowSds(X_norm) / rowMeans(X_norm))
-    # plot(
-    #   log10(rowMeans(X_norm)),
-    #   noise / rowMeans(X_norm))
-    
-    w = noise
-    X_norm <- X_norm / w
-    Y_norm <- Y_norm / w
-    
-    model <- mvr(
-      Y_norm ~ X_norm,
-      ncol(X_norm), # As all components are used, actually identical to lm
-      scale = FALSE,
-      validation = 'CV',
-      center = FALSE,
-      method = 'simpls')
-    # model <- lm(Y_norm ~ X_norm + 0)
-    coeffs = coef(model)
-    # coeffs =
-    #   apply(
-    #     Y_norm,
-    #     2,
-    #     function (y) {coef(MASS::rlm(y ~ X_norm + 0))})
-    coeffs = array(
-      coeffs,
-      dim = dim(coeffs)[1:2],
-      dimnames = dimnames(coeffs)[1:2])
-    coeffs[coeffs < 0] = 0
-    coeffs = coeffs /
-      matrix(colSums(coeffs),
-             nrow = nrow(coeffs),
-             ncol = ncol(coeffs),
-             byrow = TRUE)
-    coeffs = as.data.frame(coeffs)
-    coeffs$celltype = rownames(coeffs)
-    p1 =
-      ggplot(
-        data =
-          tidyr::pivot_longer(
-            as.data.frame(coeffs),
-            cols = -"celltype",
-            names_to = "Sample",
-            values_to = "Proportion"),
-        aes(x = Sample,
-            y = Proportion)) +
-      geom_col(
-        aes(fill = celltype)
-      ) +
-      theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5)) +
-      labs(x = NULL)
-    ggsave(
-      paste0("../DeconPeaker/deconvolution.",
-             radixsig,
-             ".",
-             radixmix,
-             "/my-Results.png"),
-      p1,
-      width = 6, height = 4)
-    write.table(coeffs,
-                paste0("../DeconPeaker/deconvolution.",
-                       radixsig,
-                       ".",
-                       radixmix,
-                       "/my-Results.txt"),
-                sep = "\t",
-                quote = FALSE,
-                row.names = FALSE)
-  }
-}
-```
-
-Regression with Bisque correction
-
-```{r}
-proj6$Clusters4BTmyelo = NA
-proj6$Clusters4BTmyelo[proj6$Clusters4res05 %in% paste0("C", 8:9)] = "myelo"
-proj6$Clusters4BTmyelo[proj6$Clusters4res05 %in% paste0("C", 10)] = "T_NK"
-proj6$Clusters4BTmyelo[proj6$Clusters4res05 %in% paste0("C", 11)] = "B"
-```
+Regression.
 
 ```{r}
 for (radixsig in c(
-  # "Clusters2endothelial",
-  # "Clusters2stellate",
-  # "Clusters2WBC",
   "Clusterscoarse2",
-  # "hepatocombined"
   "Clusters4endothelial",
-  # "Clusters4hepato",
   "Clusters4stellate",
   "Clusters4WBC",
   "Clusters4BTmyelo"
@@ -548,13 +363,9 @@ for (radixsig in c(
            nrow = nrow(celltypecount),
            ncol = ncol(celltypecount),
            byrow = TRUE)
-  # pseudomix = as.matrix(sig) %*% celltypecount
   pseudomix = as.matrix(sig) %*% 
     diag(1 / qncountfactor[colnames(sig)]) %*%
-    # diag(1 / qncountfactorarithmeticmean[colnames(sig)]) %*%
     celltypecount
-    # celltypecount %*%
-    # diag(1 / qncountfactor[colnames(celltypecount)])
   colnames(pseudomix) = colnames(celltypecount)
   pseudomix = pseudomix[, colnames(pseudomix) %in% colnames(mix)]
   
@@ -566,24 +377,9 @@ for (radixsig in c(
   toscale = pmin(toscale, toscalemax)
   toscale = pmax(toscale, toscalemin)
   
-  X = as.matrix(sig)
-  Y = as.matrix(mix / toscale)
-  # X_norm <- as.matrix((X - mean(X)) / sd(as.vector(X)))
-  # Y_norm <- as.matrix((Y - mean(Y)) / sd(Y))
-  # I don't agree to centralize
-  # X_norm <- as.matrix((X - mean(X)))
-  # Y_norm <- as.matrix((Y - mean(Y)))
-  X_norm <- as.matrix(X)
-  Y_norm <- as.matrix(Y)
-  
-  # plot(rowSds(X_norm), noise)
-  # plot(
-  #   log10(rowMeans(X_norm)),
-  #   rowSds(X_norm) / rowMeans(X_norm))
-  # plot(
-  #   log10(rowMeans(X_norm)),
-  #   noise / rowMeans(X_norm))
-  
+  X_norm = as.matrix(sig)
+  Y_norm = as.matrix(mix / toscale)
+
   w = noise
   # central part is linear in log-scale
   wmax = quantile(w, 0.75)^2 / quantile(w, 0.5)
@@ -593,20 +389,6 @@ for (radixsig in c(
   X_norm <- X_norm / w
   Y_norm <- Y_norm / w
   
-  # model <- mvr(
-  #   Y_norm ~ X_norm,
-  #   ncol(X_norm), # As all components are used, actually identical to lm
-  #   scale = FALSE,
-  #   validation = 'CV',
-  #   center = FALSE,
-  #   method = 'simpls')
-  # model <- lm(Y_norm ~ X_norm + 0)
-  # coeffs = coef(model)
-  # coeffs = array(
-  #   coeffs,
-  #   dim = dim(coeffs)[1:2],
-  #   dimnames = dimnames(coeffs)[1:2])
-
   coeffs =
     apply(
       Y_norm,
@@ -617,11 +399,8 @@ for (radixsig in c(
   
   x = rownames(coeffs)
   coeffs = diag(qncountfactor[x]) %*% coeffs
-  # coeffs = diag(qncountfactoradditivemean[x]) %*% coeffs
   rownames(coeffs) = x
   summary(colSums(coeffs))
-  # 1 for qncountfactor
-  # 1.067-1.130 for qncountfactorarithmeticmean qncountfactoradditivemean; why not 1
 
   coeffs = coeffs /
     matrix(colSums(coeffs),
@@ -651,16 +430,10 @@ for (radixsig in c(
   dataplot$celltype = factor(
     dataplot$celltype,
     levels = c(
-      # adjvar04Leiden_adjvar01Leiden Clusters4res05
       "hepato",
       "stellate", paste0("C", 8:9),
       "endothelial", paste0("C", 11:13),
       "WBC", "B", "T_NK", "myelo", paste0("C", c(15, 14, 10, 16))
-      # # adjvar04Leiden_adjvar01Leiden Clusters4res02
-      # "hepato", paste0("C", c(1, 3, 2)),
-      # "stellate",
-      # "endothelial",
-      # "WBC", paste0("C", c(5, 4))
       ))
   p1 =
     ggplot(
@@ -694,6 +467,7 @@ for (radixsig in c(
               row.names = FALSE)
 }
 ```
+
 # Refine and inspect cell type composition of bulk samples
 
 `Clusterscoarse2` is most reliable.
@@ -815,13 +589,6 @@ plotdata = dplyr::left_join(
   suffix = c(".sn", ".bulk")
 )
 summary(plotdata$Proportion.bulk / plotdata$Proportion.sn)
-# Clusterscoarse2
-#  Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
-# 0.5727  0.8544  0.9351  1.0391  1.1369  2.5505 
-# Clusters4WBC
-#   Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
-# 0.3867  0.8192  0.9796  1.1254  1.3944  2.2300 
-#
 #  Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
 # 0.000   0.739   0.946   1.028   1.174   3.524 
 
