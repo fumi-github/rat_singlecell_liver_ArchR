@@ -485,6 +485,7 @@ for (radixsig in c(
   # "hepatocombined"
   "Clusters4endothelial",
   # "Clusters4hepato",
+  "Clusters4stellate",
   "Clusters4WBC",
   "Clusters4BTmyelo"
 )) {
@@ -535,7 +536,7 @@ for (radixsig in c(
   celltypecount = 
     rbind(
       # table(proj6$Clusters2, proj6$Sample),
-      table(proj6$Clusters4res05, proj6$Sample),
+      table(proj6$Clusters4res06, proj6$Sample),
       table(proj6$Clusterscoarse2, proj6$Sample),
       table(proj6$Clusters4BTmyelo, proj6$Sample))
   rownames(celltypecount) =
@@ -559,7 +560,7 @@ for (radixsig in c(
   pseudomix = pseudomix[, colnames(pseudomix) %in% colnames(mix)]
   
   toscale = exp(rowMeans(log(mix[, colnames(pseudomix)] / pseudomix)))
-  # median 906.5 = #nuclei in batch experiment (in scale of snATAC exp 1)
+  # median 906.5 684.9 = #nuclei in batch experiment (in scale of snATAC exp 1)
   # central part is linear in log-scale
   toscalemax = quantile(toscale, 0.75)^2 / quantile(toscale, 0.5)
   toscalemin = quantile(toscale, 0.25)^2 / quantile(toscale, 0.5)
@@ -653,9 +654,9 @@ for (radixsig in c(
     levels = c(
       # adjvar04Leiden_adjvar01Leiden Clusters4res05
       "hepato",
-      "stellate",
-      "endothelial", paste0("C", 13:14),
-      "WBC", "B", "T_NK", "myelo", paste0("C", c(11, 10, 8, 9))
+      "stellate", paste0("C", 8:9),
+      "endothelial", paste0("C", 11:13),
+      "WBC", "B", "T_NK", "myelo", paste0("C", c(15, 14, 16, 10))
       # # adjvar04Leiden_adjvar01Leiden Clusters4res02
       # "hepato", paste0("C", c(1, 3, 2)),
       # "stellate",
