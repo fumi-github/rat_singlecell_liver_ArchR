@@ -779,6 +779,44 @@ resultcompared$celltype =
          levels = c("hepato", "stellate", "endothelial", "myelo", "B", "T_NK"))
 ```
 
+# Cross-check with bulk differential gene expression experiments
+
+```{r}
+# HFD 4w
+s = "m154207"
+foo = read.csv("~/human/rat_mRNA_liver/Liver_diet.ComBat.csv", header = TRUE)
+foo$Z = foo$log2_foldchange_dietHFC / foo$SE_dietHFC
+
+# washout
+s = "m168101"
+foo = read.csv("~/human/rat_mRNA_liver/Liver_HFC20w.csv", header = TRUE)
+foo$Z = foo$log2_foldchange_HFC / foo$SE_HFC
+
+foo = foo[, c("GeneName", "Z")]
+foo = foo[(foo$GeneName != "") & ! is.na(foo$Z), ]
+dataplot = resultcompared %>%
+  dplyr::filter(sample == s)
+dataplot$bulkZ = foo$Z[match(dataplot$genename, foo$GeneName)]
+dataplot$width = width(geneAnnotation$genes)[
+  match(dataplot$genename,
+        geneAnnotation$genes@elementMetadata$gene_id)]
+
+p1 =
+ggplot(data = dataplot,
+       aes(x = statistic,
+           y = bulkZ)) +
+  geom_point(size = 0.5) +
+  # geom_point(size = 0.5, aes(col = log10(width))) +
+  # scale_color_gradientn(colors = c("black", "khaki3", "red")) +
+  stat_smooth() +
+  facet_grid(cols = vars(celltype),
+             scales = "free_x") +
+  labs(title = s,
+       x = "Z for DGE in snATAC-seq",
+       y = "Z for DGE in bulk mRNA")
+ggsave(p1, filename = "crosscheckbulk.tiff", width = 9, height = 3, dpi = 150)
+```
+
 # Unify highly correlated genes in mat
 
 Target cell type
