@@ -550,6 +550,7 @@ result = rbind(
 
 result = result[order(rownames(result)), ]
 ```
+
 ## Cross check, bulk vs snATAC-seq
 
 ```{r}
@@ -637,4 +638,76 @@ ggplot(
     aes(
       label = group,
       col = factor(group)))
+```
+
+## Test difference and plot cell type composition
+
+```{r}
+data = as.data.frame(result)
+data$celltype = rownames(data)
+data = tidyr::pivot_longer(
+  data,
+  cols = -celltype,
+  names_to = "Sample",
+  values_to = "Proportion")
+
+data$group = NA
+data$group[data$Sample %in%
+             c("m154207", "m154208", "m154209", "m154210")] = "4w"
+data$group[data$Sample %in%
+             c("m167203", "m167204", "m167205", "m167206")] = "8w"
+data$group[data$Sample %in%
+             c("m168101", "m168102", "m168103", "m168104")] = "washout"
+# data$group[data$Sample %in%
+#              c("m135210", "m135211", "m158110", "m158111")] = 4
+data$group[data$Sample %in%
+             c("m154211", "m154212", "m154213", "m154214")] = "normal"
+data$group[data$Sample %in%
+             c("m167108", "m167109", "m167110", "m167111")] = "normal"
+# data$group[data$Sample %in%
+#              c("m152202", "m157103", "m158108", "m158109")] = 7
+data$group = factor(data$group, levels = c("normal", "4w", "8w", "washout"))
+```
+
+Test.
+
+```{r}
+for (i in unique(data$celltype)) {
+  print(i)
+  a0 = lm(Proportion ~ group, data = data[data$celltype == i, ])
+  print(summary(a0))
+  print(summary(a0)$coefficient[-1, 4] < 0.05/7/3)
+}
+```
+
+Plot.
+
+```{r}
+dataplot = data
+dataplot$celltype =
+  factor(dataplot$celltype,
+         levels = c("hepato", "endothelial", "stellate", "C16", "C10", "C14", "C15"))
+dataplot$group =
+  factor(dataplot$group,
+         levels = c("4w", "8w", "washout", "normal"))
+dataplot = dataplot %>%
+  tidyr::drop_na(group) %>%
+  dplyr::group_by(celltype, group) %>%
+  dplyr::summarize(mean = mean(Proportion),
+                   sd = sd(Proportion),
+                   .groups = "drop")
+
+ggplot(data = dataplot) +
+  geom_col(
+    aes(x = group,
+        y = mean)) +
+  geom_errorbar(
+    aes(x = group,
+        ymin = mean - sd,
+        ymax = mean + sd),
+    width = 0.2) +
+  facet_grid(cols = vars(celltype)) +
+  labs(
+    x = NULL,
+    y = "Proportion [Mean +/- SD]")
 ```
