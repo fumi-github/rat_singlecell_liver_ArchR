@@ -627,7 +627,7 @@ g[g %in% paste0("C", c(10, 16))] = "myelo"
 g[g %in% paste0("C", 14)] = "T_NK"
 g[g %in% paste0("C", 15)] = "B"
 g[g %in% paste0("C", 8:9)] = "stellate"
-g[g %in% paste0("C", 11:14)] = "endothelial"
+g[g %in% paste0("C", 11:13)] = "endothelial"
 proj6$Clusters4BTmyelo = g
 ```
 
