@@ -671,6 +671,57 @@ x = preprocessCore::normalize.quantiles(assay(mat))
 assay(mat, withDimnames = FALSE) = x
 ```
 
+This part is sidetrack.  Plot expression of cluster marker genes.
+
+```{r}
+markerGenes = c(
+  "Alb", "Cyp2e1",
+  "Krt19",
+  "Stab2",
+  "Des", "Lrat",
+  "Csf3r",
+  "Elane", "Ly6g6d", 
+  "Csf1r",
+  "Lyz2",
+  "Marco",
+  "Gata3",
+  "Gzma",
+  "Ebf1"
+)
+
+idx = which(rownames(mat) %in% markerGenes)
+dataplot = as.data.frame(t(assay(mat[idx, ])))
+
+g = proj6$Clusters4res06
+g[g %in% paste0("C", 1:7)] = "hepatocyte"
+g[g %in% paste0("C", 8:9)] = "stellate"
+g[g %in% paste0("C", 11:13)] = "endothelial"
+dataplot$Clusters4WBC = g[match(rownames(dataplot), proj6$cellNames)]
+
+dataplot = tidyr::pivot_longer(
+  dataplot,
+  cols = -Clusters4WBC,
+  names_to = "genename",
+  values_to = "expression")
+dataplot$Clusters4WBC = factor(
+  dataplot$Clusters4WBC,
+  levels = c("hepatocyte", "endothelial", "stellate", "C16", "C10", "C14", "C15"))
+dataplot$genename = factor(
+  dataplot$genename,
+  levels = markerGenes)
+dataplot$expression = 2^dataplot$expression
+
+ggplot(
+  data = dataplot,
+  aes(x = Clusters4WBC,
+      y = expression)) +
+  geom_violin() +
+  scale_y_log10() +
+  facet_grid(rows = vars(genename), scales = "free_y") +
+  labs(x = NULL,
+       y = "Gene expression")
+```
+
 Row centralize
 
 ```{r}
@@ -777,6 +828,34 @@ resultcompared =
 resultcompared$celltype =
   factor(resultcompared$celltype,
          levels = c("hepato", "stellate", "endothelial", "myelo", "B", "T_NK"))
+```
+
+Show top hits
+
+```{r}
+data =
+resultcompared %>%
+  dplyr::mutate(foldchange = 2^estimate) %>%
+  dplyr::select(-c("term", "estimate", "std.error", "FDR", "tgt", "bgd")) %>%
+  dplyr::group_by(celltype, sample) %>%
+  dplyr::mutate(rank = rank(statistic)) %>%
+  dplyr::ungroup() %>%
+  dplyr::group_by(celltype) %>%
+  tidyr::pivot_wider(names_from = sample, values_from = c("foldchange", "statistic", "p", "rank")) %>%
+  dplyr::filter(pmin(foldchange_m154207, foldchange_m167203, foldchange_m168101) < 1/1.1 |
+                  pmax(foldchange_m154207, foldchange_m167203, foldchange_m168101) > 1.1) %>%
+  dplyr::mutate(pminrank = pmin(rank_m154207, rank_m167203, rank_m168101),
+                pmaxrank = pmax(rank_m154207, rank_m167203, rank_m168101)) %>%
+  dplyr::filter(pminrank <= 3 | pmaxrank > max(pmaxrank) - 3) %>%
+  dplyr::ungroup() %>%
+  dplyr::arrange(- (statistic_m154207 + statistic_m167203 + statistic_m168101)) %>%
+  dplyr::arrange(celltype)
+data$chr = as.character(seqnames(geneAnnotation$genes))[
+  match(data$genename,
+        geneAnnotation$genes@elementMetadata$gene_id)]
+data$start = start(geneAnnotation$genes)[
+  match(data$genename,
+        geneAnnotation$genes@elementMetadata$gene_id)]
 ```
 
 # Cross-check with bulk differential gene expression experiments
