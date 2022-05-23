@@ -802,13 +802,17 @@ resultcompared =
               cond = rep(NA, ncol(mat))
               cond[g == tgt] = 1
               cond[g == bgd] = 0
-              resulttgtbgd = broom::tidy(
-                lm(y ~ x,
-                   data = list(
-                     y = t(assay(mat)),
-                     x = cond)))
+              a0 = lm(y ~ x,
+                      data = list(
+                        y = t(assay(mat)),
+                        x = cond))
+              resulttgtbgd = broom::tidy(a0)
               resulttgtbgd = resulttgtbgd[resulttgtbgd$term == "x", ]
               colnames(resulttgtbgd)[colnames(resulttgtbgd) == "p.value"] = "p"
+              resulttgtbgd$logp = pt(- abs(resulttgtbgd$statistic),
+                                     df = a0$df.residual,
+                                     log.p = TRUE) +
+                log(2)
               resulttgtbgd$FDR = p.adjust(resulttgtbgd$p, method = "BH")
               colnames(resulttgtbgd)[colnames(resulttgtbgd) == "response"] = "genename"
               resulttgtbgd$ENTREZID =
@@ -841,7 +845,7 @@ resultcompared %>%
   dplyr::mutate(rank = rank(statistic)) %>%
   dplyr::ungroup() %>%
   dplyr::group_by(celltype) %>%
-  tidyr::pivot_wider(names_from = sample, values_from = c("foldchange", "statistic", "p", "rank")) %>%
+  tidyr::pivot_wider(names_from = sample, values_from = c("foldchange", "statistic", "p", "logp", "rank")) %>%
   dplyr::filter(pmin(foldchange_m154207, foldchange_m167203, foldchange_m168101) < 1/1.1 |
                   pmax(foldchange_m154207, foldchange_m167203, foldchange_m168101) > 1.1) %>%
   dplyr::mutate(pminrank = pmin(rank_m154207, rank_m167203, rank_m168101),
