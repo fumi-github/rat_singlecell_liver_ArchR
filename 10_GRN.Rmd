@@ -625,6 +625,8 @@ names(aR) = paste0("Gene.M", 1:ncol(aR))
 NMF::aheatmap(
   x,
   color = c("white", "black"),
+  Rowv = NA,
+  Colv = NA,
   annCol = aC,
   annRow = aR,
   annColors = rep(list(c("white", "black")), dim(res)[3] * 2),
@@ -1134,7 +1136,7 @@ p1 =
   geom_boxplot(width = 0.1, fill = "black", outlier.color = NA) +
   stat_summary(fun = median, geom = "point", fill = "white", shape = 21, size = 1.7) +
   labs(x = NULL,
-       y = "Module expression of single cells") +
+       y = "Module expression in single cells") +
   facet_grid(rows = vars(Module))
 ggsave(filename = paste0(tgtct, ".modulescore_diet.geom_violoin.pdf"), p1,
        height = 3.5, width = 3)
@@ -1732,6 +1734,7 @@ p1 =
         y = ppinteractionwithgs)) +
   geom_point(aes(color = interact),
              size = 0.5) +
+  scale_x_continuous(breaks = seq(-12, 12, 4)/10) +
   scale_color_manual(values = c("Red", "Blue")) +
   geom_text(data = dataplot[abs(dataplot$score) > 0.3 & # 0.4 if not hepato
                               dataplot$interact == "High", ],
