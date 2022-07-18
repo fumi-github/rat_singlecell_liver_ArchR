@@ -274,7 +274,7 @@ Check cell types
 markerGenes = c(
   "Alb", "Apoc3", "Cyp2e1", "Cyp2f4",
   "Epcam", "Krt19",
-  "Dcn", "Des", "Lrat",
+  "Dcn", "Des", "Lrat", "Acta2",
   "Stab2",
   "Csf3r",
   "Elane", "Ly6g6c", "Ly6g6d", "Ly6g6e", "Mpo",
