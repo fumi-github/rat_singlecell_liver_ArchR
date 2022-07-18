@@ -593,17 +593,28 @@ summary(plotdata$Proportion.bulk / plotdata$Proportion.sn)
 #  Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
 # 0.000   0.739   0.946   1.028   1.174   3.524 
 
+plotdata$celltype =
+  factor(plotdata$celltype,
+         levels = c("hepato", "endothelial", "stellate", "C16", "C10", "C14", "C15"))
+
 ggplot(
   data = plotdata,
   aes(x = Proportion.sn,
       y = Proportion.bulk)) + 
-  geom_point(
-    aes(col = celltype)) +
-  scale_x_log10() +
-  scale_y_log10() +
   geom_abline(
     aes(intercept = 0,
-        slope = 1))
+        slope = 1),
+    color = "darkgray") +
+  geom_point(
+    aes(col = celltype)) +
+  # same as UMAP for Clusters4WBC
+  scale_colour_manual(values = c("#FEE500", "#F47D2B", "#8A9FD1", "#89288F",
+                                 "#D51F26", "#272E6A", "#208A42")) +
+  xlim(0, 0.7) +
+  ylim(0, 0.7) +
+  # scale_x_log10() +
+  # scale_y_log10() +
+  coord_fixed()
 ```
 
 ## PCA of cell type compositon
