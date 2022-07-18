@@ -1660,9 +1660,19 @@ mean(sXgsnull > sXgs$d[1])
 Relative expression level by diets.
 
 ```{r}
+library(pROC)
+
 sXgssign = 1 # 1 or -1
 
 a0 = lm(sXgs$v[, 1] * sqrt(nrow(sXgs$v)) * sXgssign ~ 0 + A)
+
+for (x in setdiff(A, "sp")) {
+  print(x)
+  A2level = as.character(A)
+  A2level[A2level != "sp" & A2level != x] = NA
+  A2level = factor(A2level, levels = c("sp", x))
+  print(auc(roc(A2level,  sXgs$v[, 1] * sqrt(nrow(sXgs$v)) * sXgssign)))
+}
 
 dataplot = summary(a0)$coefficients[, 1:2]
 dataplot = as.data.frame(dataplot)
