@@ -884,6 +884,14 @@ dataplot$width = width(geneAnnotation$genes)[
   match(dataplot$genename,
         geneAnnotation$genes@elementMetadata$gene_id)]
 
+dataplot = dataplot[
+  dataplot$celltype %in%
+    c("hepato", "stellate", "endothelial", "myelo"), ]
+dataplot$celltype =
+  factor(as.character(dataplot$celltype),
+         levels = c("hepato", "endothelial", "stellate", "myelo"),
+         labels = c("Hepatocyte", "Endothelial", "Stellate", "Macrophage"))
+
 p1 =
 ggplot(data = dataplot,
        aes(x = statistic,
