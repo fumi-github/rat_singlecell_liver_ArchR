@@ -571,7 +571,7 @@ basis(res)["Motif.Hnf4g", ]
 
 In `summary(t(coefficients(res)))`, one factor has large median and 3rd quantile.
 Does it correspond to "all of the remaining genes"?
-The basis for the  factor includes Motif.Hnf4g.
+The basis for the factor includes Motif.Hnf4g.
 We set this factor as the last one in moduleindex.
 Motif.Hnf4g is up in m154207 (HFD4w) and down in m168101 (washout).  Why??
 
