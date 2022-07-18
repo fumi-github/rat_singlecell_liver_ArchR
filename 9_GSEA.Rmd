@@ -234,7 +234,7 @@ write.table(
 # Summarize results across tgt/bgd combinations
 
 For all comparisons under `gname = "Clusters4BTmyelospdietcombined"`,
-summarize the results for a given geneset `gsname` in databaset `dbname`.
+summarize the results for a given geneset `gsname` in database `dbname`.
 
 ```{r}
 do.call(
