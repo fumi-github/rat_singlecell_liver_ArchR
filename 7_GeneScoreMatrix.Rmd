@@ -883,6 +883,8 @@ dataplot$bulkZ = foo$Z[match(dataplot$genename, foo$GeneName)]
 dataplot$width = width(geneAnnotation$genes)[
   match(dataplot$genename,
         geneAnnotation$genes@elementMetadata$gene_id)]
+dataplot$widthclass = "short"
+dataplot$widthclass[dataplot$width > median(dataplot$width)] = "long"
 
 dataplot = dataplot[
   dataplot$celltype %in%
@@ -893,15 +895,15 @@ dataplot$celltype =
          labels = c("Hepatocyte", "Endothelial", "Stellate", "Macrophage"))
 
 p1 =
-ggplot(data = dataplot,
-       aes(x = statistic,
-           y = bulkZ)) +
+  ggplot(data = dataplot,
+         aes(x = statistic,
+             y = bulkZ)) +
   geom_point(size = 0.5) +
-  # geom_point(size = 0.5, aes(col = log10(width))) +
-  # scale_color_gradientn(colors = c("black", "khaki3", "red")) +
   stat_smooth() +
-  facet_grid(cols = vars(celltype),
-             scales = "free_x") +
+  facet_grid(
+    # rows = vars(widthclass),
+    cols = vars(celltype),
+    scales = "free_x") +
   labs(title = s,
        x = "Z for DGE in snATAC-seq",
        y = "Z for DGE in bulk mRNA")
