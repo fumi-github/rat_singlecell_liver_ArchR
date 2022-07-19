@@ -12,7 +12,7 @@ I recommend using RStudio for editing and running.
 
 * DDBJ (BioProject PRJDB13870)
 
-### Use case 1: Raw data
+### Use case 1: Raw data. Not recommended because the data cleaning takes a few days.
 
 * single-nucleus ATAC-seq
   * BAM files produced by Cell Ranger are available from DDBJ (BioProject PRJDB13870)
@@ -27,11 +27,11 @@ I recommend using RStudio for editing and running.
 * single-nucleus ATAC-seq
   * ArchR project files (*.zip; unzip before use)  are available from
     [figshare](https://doi.org/10.6084/m9.figshare.20236509)
-  * Start by running `4_LSI_and_clustering_of_tile_matrix.Rmd`
+  * Start by running `2_ArchR_setting.Rmd` and then `4_LSI_and_clustering_of_tile_matrix.Rmd`
 * bulk ATAC-seq
   * BAM files (*.bam *.bai) are available from
     [figshare](https://doi.org/10.6084/m9.figshare.20236509)
-  * Start by running `6_cell_type_composition.Rmd`
+  * The data is analyzed in `6_cell_type_composition.Rmd`
 
 ### Use case 3: Generate tables & figures in manuscript
 
