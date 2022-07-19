@@ -54,6 +54,12 @@ I recommend using RStudio for editing and running.
 * 7_GeneScoreMatrix.Rmd >
   Compare between conditions
   * Table S2
+* 7_GeneScoreMatrix.Rmd >
+  Cross-check with bulk differential gene expression experiments
+  * Fig.S1
+* 9_GSEA.Rmd >
+  Summarize results across tgt/bgd combinations
+  * Fig.2 (The R code outputs result for each gene set. The heatmap was drawn using Excel.)
 * 10_GRN.Rmd >
   Multiple motifs-to-one gene analysis >
   Nonnegative matrix factorization of regulator-regulatee matrix
@@ -65,7 +71,7 @@ I recommend using RStudio for editing and running.
 * 10_GRN.Rmd >
   Differential expression and co-regulation of a gene set >
   Differential expression
-  * Fig.7
+  * Fig.7, Fig.S2
 
 ## Information
 
