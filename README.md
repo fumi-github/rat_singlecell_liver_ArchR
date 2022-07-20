@@ -6,6 +6,8 @@ Files are in R Markdown/Notebook (.Rmd) format.
 They are named 1_, 2_, ... in the order of execution.
 I recommend using RStudio for editing and running.
 
+Questions? Please submit to GitHub Issues or e-mail fumihiko AT takeuchi DOT name
+
 ## Data download
 
 ### Animal ID and experimental condition
