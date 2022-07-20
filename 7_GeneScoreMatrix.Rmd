@@ -862,6 +862,36 @@ data$start = start(geneAnnotation$genes)[
         geneAnnotation$genes@elementMetadata$gene_id)]
 ```
 
+Output foldchange and P for all genes
+
+```{r}
+for (tgtct in unique(resultcompared$celltype)) {
+  data =
+    resultcompared %>%
+    dplyr::filter(celltype == tgtct) %>%
+    dplyr::mutate(foldchange = 2^estimate) %>%
+    dplyr::select(-c("term", "estimate", "std.error", "statistic", "FDR", "celltype", "tgt", "bgd")) %>%
+    tidyr::pivot_wider(names_from = sample, values_from = c("foldchange", "p", "logp"))
+  
+  data$chr = as.character(seqnames(geneAnnotation$genes))[
+    match(data$genename,
+          geneAnnotation$genes@elementMetadata$gene_id)]
+  data$chr = sub("^chr", "", data$chr)
+  data$TSS = start(geneAnnotation$genes)[
+    match(data$genename,
+          geneAnnotation$genes@elementMetadata$gene_id)]
+  
+  data = data[, c(1:2, 12:13, c(3, 6, 9), c(4, 7, 10), c(5, 8, 11))]
+  colnames(data) = sub("m154207", "HFD4w", colnames(data))
+  colnames(data) = sub("m167203", "HFD8w", colnames(data))
+  colnames(data) = sub("m168101", "washout", colnames(data))
+  
+  write.csv(data,
+            file = paste0("resultcomparedGene.", tgtct, ".csv"),
+            row.names = FALSE)
+}
+```
+
 # Cross-check with bulk differential gene expression experiments
 
 ```{r}
