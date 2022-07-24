@@ -12,15 +12,18 @@ Questions? Please submit to GitHub Issues or e-mail fumihiko AT takeuchi DOT nam
 
 ### Animal ID and experimental condition
 
-* See fields `sample_name`, `age` and `treatment` in DDBJ (BioProject PRJDB13870)
+* See fields `sample_name`, `age` and `treatment` for each `biosample` in DDBJ
+  (BioProject [PRJDB13870](https://ddbj.nig.ac.jp/resource/bioproject/PRJDB13870))
 
 ### Use case 1: Raw data. Not recommended because the data cleaning takes a few days.
 
 * single-nucleus ATAC-seq
-  * BAM files produced by Cell Ranger are available from DDBJ (DRA DRA014511 within BioProject PRJDB13870)
+  * BAM files produced by Cell Ranger are available from DDBJ
+    (DRA [DRA014511](https://ddbj.nig.ac.jp/resource/sra-submission/DRA014511) within BioProject PRJDB13870)
   * Start by running `1_unify_multiple_barcodes_for_single_droplet.Rmd`
 * bulk ATAC-seq
-  * FASTQ files are available from DDBJ (DRA DRA014458 within BioProject PRJDB13870)
+  * FASTQ files are available from DDBJ
+    (DRA [DRA014458](https://ddbj.nig.ac.jp/resource/sra-submission/DRA014458) within BioProject PRJDB13870)
   * I used the ATAC-seq data processing workflow by
     [Reske et al.](https://doi.org/10.1186/s13072-020-00342-y)
 
