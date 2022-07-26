@@ -17,7 +17,9 @@ tgtct =
 ```
 
 Beforehand,
-load `redundantGene` and `matnrGene` from `7_GeneScoreMatrix.Rmd`.
+load `resultcompared` from `7_GeneScoreMatrix.Rmd` and rename to `resultcomparedGene`.
+Load `redundantGene` and `matnrGene` from `7_GeneScoreMatrix.Rmd`.
+Load `resultcompared` from `8_MotifMatrix.Rmd` and rename to `resultcomparedMotif`.
 Load `redundantMotif` and `matnrMotif` from `8_MotifMatrix.Rmd`.
 
 ```{r}
@@ -37,9 +39,6 @@ ggplot(data = data.frame(
 ```
 
 Filter differentially expressed genes/motifs.
-Beforehand,
-load `resultcompared` from `7_GeneScoreMatrix.Rmd` and rename to `resultcomparedGene`.
-Load `resultcompared` from `8_MotifMatrix.Rmd` and rename to `resultcomparedMotif`.
 For robustness, we impose abs(estimate) > log2(1.1), which is arbitrary (especially for Motif).
 
 ```{r}
