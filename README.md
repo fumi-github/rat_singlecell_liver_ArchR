@@ -58,7 +58,7 @@ Questions? Please submit to GitHub Issues or e-mail fumihiko AT takeuchi DOT nam
   * Fig.1C
 * 7_GeneScoreMatrix.Rmd >
   Compare between conditions
-  * Table S2
+  * Table S2, Dataset S1
 * 7_GeneScoreMatrix.Rmd >
   Cross-check with bulk differential gene expression experiments
   * Fig.S1
