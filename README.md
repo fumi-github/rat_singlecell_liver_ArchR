@@ -82,4 +82,4 @@ Questions? Please submit to GitHub Issues or e-mail fumihiko AT takeuchi DOT nam
 
 Please cite
 
-[Takeuchi, F. et al., Single-nucleus ATAC-seq elucidates major modules of gene regulation in the development of non-alcoholic fatty liver disease, DOI: 10.1101/2022.07.12.499681](https://biorxiv.org/cgi/content/short/2022.07.12.499681v1)
+[Takeuchi, F. et al., Single-nucleus ATAC-seq elucidates major modules of gene regulation in the development of non-alcoholic fatty liver disease, DOI: 10.1101/2022.07.12.499681](https://doi.org/10.1101/2022.07.12.499681)
