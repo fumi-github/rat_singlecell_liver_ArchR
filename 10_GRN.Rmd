@@ -3,6 +3,8 @@ title: "GRN"
 output: html_notebook
 ---
 
+Apart from the section "Preprocess", other sections can be executed independently.
+
 # Preprocess
 
 Target cell type
