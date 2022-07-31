@@ -79,25 +79,27 @@ cornulldistribution =
         method = "spearman")
       sapply(0:1000, function (x) { sum(abs(corMGsim) > x/1000) })
     })
-max(which(
-  rowMeans(cornulldistribution) /
-    sapply(0:1000, function (x) { sum(abs(corMG) > x/1000) }) >= 0.01)) / 1000
-# FDR<0.01
-# hepatocyte >=0.035
-# T_NK       >=0.161 (all samples; qn) OLD
-mean(sort(
-  apply(
-    cornulldistribution,
-    2,
-    function (x) { (max(which(x > 0)) - 1)/1000 }),
-  decreasing = TRUE)[5:6])
-# globalP=0.05
-# hepatocyte 0.062
-# T_NK       0.281  (all samples; qn) OLD
 
-# Keep only FDR<0.01
+thresholdFDR001 =
+  max(which(
+    rowMeans(cornulldistribution) /
+      sapply(0:1000, function (x) { sum(abs(corMG) > x/1000) }) >= 0.01)) / 1000
+# FDR<0.01
+# >0.035 ; hepato
+
+thresholdglobalP005 =
+  mean(sort(
+    apply(
+      cornulldistribution,
+      2,
+      function (x) { (max(which(x > 0)) - 1)/1000 }),
+    decreasing = TRUE)[5:6])
+# globalP=0.05
+# 0.062 ; hepato
+
+# Mask unless FDR<0.01
 corMGsig = corMG
-corMGsig[abs(corMGsig) < 0.035] = 0
+corMGsig[abs(corMGsig) <= thresholdFDR001] = 0
 ```
 
 Filter differentially expressed genes/motifs.
@@ -114,8 +116,8 @@ plot(quantile(abs(corMGsigsig), seq(0, 1, 0.01)))
 ## SVD of corMGsigsig
 
 For hepato, 7 components look significant.
-Component 1 is characterized by Motif.Fos, Motif.Smarcc1, Motif.Bach1.
-Other components are not evident.
+They tend to overlap with factors (modules) found below
+in section 'Multiple motifs-to-one gene analysis'
 
 ```{r}
 x = svd(corMGsigsig)
@@ -128,7 +130,13 @@ ggplot(data = dataplot,
            y = V2)) +
   geom_point(size = 0.5)
 
-tail(sort(as.matrix(dataplot)[, 1]), 20)
+i = 1
+w = x$u[, i]
+names(w) = rownames(corMGsigsig)
+w[head(order(abs(w), decreasing = TRUE), 10)]
+w = x$v[, i]
+names(w) = colnames(corMGsigsig)
+w[head(order(abs(w), decreasing = TRUE), 10)]
 ```
 
 ## Graph of corMGsigsig
@@ -379,85 +387,8 @@ R2Motifdietmutual = readRDS(paste0("R2Motifdietmutual.", tgtct, ".rds"))
 ```
 
 ```{r}
-R2Motifdietmutual = readRDS(paste0("R2Motifdietmutual.", tgtct, ".rds"))
-weightMatrix = readRDS(paste0("GENIE3.",  tgtct, ".rds"))
-x = min(colQuantiles(weightMatrix, probs = 0.95))
-weightMatrix = weightMatrix - x
-weightMatrix[weightMatrix < 0] = 0
-identical(colnames(R2Motifdietmutual), colnames(weightMatrix))
-all(rownames(R2Motifdietmutual) %in%  rownames(weightMatrix))
-foo = weightMatrix[rownames(R2Motifdietmutual), ]
-plot(rowSums(R2Motifdietmutual), rowSums(foo))
-plot(colSums(R2Motifdietmutual), colSums(foo))
-```
-
-Clean noise.
-
-```{r}
-plot(quantile(R2Motifdietmutual, seq(0, 1, 0.01)))
-plot(quantile(R2Motifdietmutual, seq(1 - 1e-3, 1, 1e-5)))
-plot(quantile(R2Motifdietmutual, seq(1 - 1e-4, 1, 1e-6)))
-
-# Apparently unnecessary (nmf is not suited for sparse matrix)
-# But actually improves GSEA of coef
-x = min(colQuantiles(R2Motifdietmutual, probs = 0.95))
-R2Motifdietmutual = R2Motifdietmutual - x
-R2Motifdietmutual[R2Motifdietmutual < 0] = 0
-
-# NG; take intersection with corMGsigsig
-# nmf crashes for sparse matrix
-# identical(rownames(R2Motifdietmutual), rownames(corMGsigsig))
-# identical(colnames(R2Motifdietmutual), colnames(corMGsigsig))
-# R2Motifdietmutual[corMGsigsig == 0] = 0
-
-# plot(sort(rowMeans(R2Motifdietmutual)))
-R2Motifdietmutual = R2Motifdietmutual[rowMeans(R2Motifdietmutual) > 0.001, ] # arbitrary
-
-plot(hclust(dist(R2Motifdietmutual)))
-```
-
-Nonnegative matrix factorization.
-Rank cutoff is not obvious from estim.r.
-From GSEA of coef, rank = 4 for hepato
-
-```{r}
-library(NMF)
-
-gc()
-estim.r = nmf(R2Motifdietmutual,
-              rank = 2:6,
-              nrun = 30, # 10 30
-              seed = 123456,
-              .opt = 'vP4') # P5 error
-# plot(estim.r)
-
-set.seed(123456)
-V.random = randomize(R2Motifdietmutual)
-gc()
-estim.r.random = nmf(V.random,
-                     rank = 2:6,
-                     nrun = 30, # 10 30
-                     seed = 123456,
-                     .opt = 'vP4')
-plot(estim.r, estim.r.random)
-rm(V.random)
-
-res.nndsvd = nmf(R2Motifdietmutual,
-                 rank = 4,
-                 seed = 'nndsvd')
-gc()
-res = nmf(R2Motifdietmutual,
-          rank = 4,
-          nrun = 100, # 10 100
-          seed = 123456,
-          .opt = 'vP4')
-summary(res.nndsvd, target = R2Motifdietmutual)
-summary(res, target = R2Motifdietmutual)
-# saveRDS(res, file = paste0("R2Motifdietmutual.NMF.", tgtct, ".rds"))
-res = readRDS(paste0("R2Motifdietmutual.NMF.", tgtct, ".rds"))
-
-basismap(res)
-# coefmap(res)
+head(sort(rowMeans(R2Motifdietmutual), decreasing = TRUE))
+head(sort(rowMeans(R2Motifdietmutual > 0), decreasing = TRUE))
 ```
 
 # Multiple motifs-to-one gene analysis
