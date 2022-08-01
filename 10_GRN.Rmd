@@ -1151,11 +1151,13 @@ tail(data[order(data$score), ], 20)
 The enrichment is weak.
 Was `nrow(matnrDEGene)` predictors too many for GENIE3?
 
-# Differential expression and co-regulation of a gene set
+# Activity score and co-regulation of a gene set
 
 For a given gene set, the following might be confused but are different:
 1. Genes that are differentially expressed among conditions
-2. "Core" genes in co-regulation, here defined as co-regulated with many other genes
+2. "Core" genes in co-regulation, here defined as co-regulated with other genes in the gene set
+
+## Define gene set, `gs`
 
 Load `gslists` from `9_GSEA.Rmd`.
 
@@ -1234,14 +1236,14 @@ t.test(string$ppinteractionwithgs[string$protein1 %in% gs],
        string$ppinteractionwithgs[! string$protein1 %in% gs])
 ```
 
-## Differential expression
+## Compute gene set activity score
 
-In the code block below, check if the genes in `gs` are co-regulated, more than "average".
-If so, we analyze differential expression in the direction of `gs`,
-which might or might not be differentially expressed between diet conditions.
+In the code block below, check if the genes in `gs` are co-regulated, more than randomly chosen genes.
+If so, the "average expression" is defined as the gene set activity score, `gsactivity`.
+`gsactivity` might or might not be differentially expressed between diet conditions.
 
 Use `matnrDEGene` and `matnrDEMotif`, which should include less noise.
-When `gs` is not differentially expressed between diet conditions,
+When `gsactivity` is not differentially expressed between diet conditions,
 instead use `matnrGene` and `matnrMotif`;
 specifically for GOBP_SEMAPHORIN_PLEXIN_SIGNALING_PATHWAY and ZONATION.
 
@@ -1315,27 +1317,20 @@ sXgsnull =
 mean(sXgsnull > sXgs$d[1])
 ```
 
-Relative expression level by diets.
+Define gene set activity score.
 
 ```{r}
-library(pROC)
-
 sXgssign = 1 # 1 or -1
+gsactivity = sXgs$v[, 1] * sqrt(nrow(sXgs$v)) * sXgssign
+```
 
-a0 = lm(sXgs$v[, 1] * sqrt(nrow(sXgs$v)) * sXgssign ~ 0 + A)
+Compare `gsactivity` between diets.
 
-for (x in setdiff(A, "sp")) {
-  print(x)
-  A2level = as.character(A)
-  A2level[A2level != "sp" & A2level != x] = NA
-  A2level = factor(A2level, levels = c("sp", x))
-  print(auc(roc(A2level,  sXgs$v[, 1] * sqrt(nrow(sXgs$v)) * sXgssign)))
-}
-
+```{r}
+a0 = lm(gsactivity ~ 0 + A)
 dataplot = summary(a0)$coefficients[, 1:2]
 dataplot = as.data.frame(dataplot)
 dataplot$diet = sub("^A", "", rownames(dataplot))
-
 p1 =
   ggplot(data = dataplot,
          aes(x = diet,
@@ -1352,7 +1347,7 @@ ggsave(filename = paste0(tgtct, ".", gsname, ".diet.pdf"), p1,
 dataplot =
   data.frame(
     diet = A,
-    expression = sXgs$v[, 1] * sqrt(nrow(sXgs$v)) * sXgssign)
+    expression = gsactivity)
 p1 =
   ggplot(data = dataplot,
          aes(x = diet,
@@ -1364,7 +1359,21 @@ p1 =
        y = "GS expression of single cells")
 ggsave(filename = paste0(tgtct, ".", gsname, ".diet.geom_violoin.pdf"), p1,
        height = 1, width = 3)
+
+
+library(pROC)
+for (x in setdiff(A, "sp")) {
+  print(x)
+  A2level = as.character(A)
+  A2level[A2level != "sp" & A2level != x] = NA
+  A2level = factor(A2level, levels = c("sp", x))
+  print(auc(roc(A2level,  gsactivity)))
+}
 ```
+
+## Core genes as those central in co-regulation and protein-protein interaction
+
+Genes central in co-regulation should have strong correlation with `gsactivity`.
 
 Combine with ppinteractionwithgs
 Among genes/motifs with large abs(score), if many have high ppinteractionwithgs, this approach is promising.
@@ -1375,7 +1384,7 @@ the co-regulation can be an artifact; it can be genuine, but is difficult to pro
 
 ```{r}
 dataplot = data.frame(
-  score = rbind(XGene, XMotif) %*% sXgs$v[, 1] / sqrt(ncol(XGene) - 1) * sXgssign,
+  score = rbind(XGene, XMotif) %*% gsactivity / sqrt(nrow(sXgs$v)) / sqrt(nrow(sXgs$v) - 1),
   name = c(sub("Gene.", "", rownames(XGene)),
            toupper(sub("Motif.", "", rownames(XMotif)))),
   genename = c(sub("Gene.", "", rownames(XGene)),
@@ -1412,7 +1421,7 @@ p1 =
             vjust = 0,
             size = 2) +
   facet_grid(rows = vars(geneset2)) +
-  labs(x = "Correlation with GS expression",
+  labs(x = "Correlation with GS activity score",
        y = "Total protein-protein interactions with GS",
        title = paste0(gsname, "\n", tgtct))
 ggsave(p1, filename = paste0("ppinteractionwithgs.", tgtct, ".", gsname, ".pdf"),
