@@ -567,7 +567,7 @@ NMF::aheatmap(
   filename = "NMF.heatmap.pdf", width = 5, height = 5)
 ```
 
-## Gene set enrichment analysis for factors (modules) of the genes
+## Gene set enrichment analysis for genes belonging to factors (modules)
 
 Load `gslists` from `9_GSEA.Rmd`.
 
