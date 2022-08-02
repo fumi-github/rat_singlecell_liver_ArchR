@@ -74,9 +74,13 @@ Questions? Please submit to GitHub Issues or e-mail fumihiko AT takeuchi DOT nam
   Inspect enriched gene sets
   * Fig.3B, Fig.4B, Fig.5B, Fig.6B
 * 10_GRN.Rmd >
-  Differential expression and co-regulation of a gene set >
-  Differential expression
-  * Fig.7, Fig.S2
+  Activity score and co-regulation of a gene set >
+  Compute gene set activity score
+  * Fig.7 (top panel), Fig.S2 (top panel)
+* 10_GRN.Rmd >
+  Activity score and co-regulation of a gene set >
+  Core genes as those central in co-regulation and protein-protein interaction
+  * Fig.7 (middle & bottom panels), Fig.S2 (middle & bottom panels)
 
 ## Information
 
