@@ -1360,7 +1360,6 @@ p1 =
 ggsave(filename = paste0(tgtct, ".", gsname, ".diet.geom_violoin.pdf"), p1,
        height = 1, width = 3)
 
-
 library(pROC)
 for (x in setdiff(A, "sp")) {
   print(x)
