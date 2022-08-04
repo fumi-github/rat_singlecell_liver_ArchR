@@ -1157,7 +1157,7 @@ For a given gene set, the following might be confused but are different:
 1. Genes that are differentially expressed among conditions
 2. "Core" genes in co-regulation, here defined as co-regulated with other genes in the gene set
 
-## Define gene set, `gs`
+## Define gene set
 
 Load `gslists` from `9_GSEA.Rmd`.
 
