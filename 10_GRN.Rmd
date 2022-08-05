@@ -1526,73 +1526,7 @@ sr = SRanalysis(
   seed = 123)
 
 # saveRDS(sr, file = paste0("sr.", tgtct, ".", gsname, ".", sw, ".rds"))
-# saveRDS(sr, file = paste0("sr_pc.", tgtct, ".", gsname, ".", sw, ".rds"))
-# saveRDS(sr, file = paste0("sr_average.", tgtct, ".", gsname, ".", sw, ".rds"))
-# saveRDS(sr, file = paste0("sr_average.", tgtct, ".", gsname, ".", sw, ".", B, ".rds"))
 sr = readRDS(paste0("sr.", tgtct, ".", gsname, ".", sw, ".rds"))
-# sr = readRDS(paste0("sr_pc.", tgtct, ".", gsname, ".", sw, ".rds"))
-# sr = readRDS(paste0("sr_average.", tgtct, ".", gsname, ".", sw, ".rds"))
-# sr = readRDS(paste0("sr_average.", tgtct, ".", gsname, ".", sw, ".", B, ".rds"))
-```
-
-IF NOT WORKING, DELETE.
-Prescreen by correlation and stability.
-This could improve SR, but skew SRpred.
-
-```{r}
-sr1 = StabilizedRegression(
-  t(assay(matnrDEGene)),
-  gsactivity,
-  proj6$spdietcombined[match(colnames(matnrDEGene), proj6$cellNames)],
-  pars = list(m = 1,
-              B = NA,
-              stab_test = "mean_sres_score",
-              prescreen_size = prescreen_size * 2),
-  verbose = 2,
-  seed = 123)
-
-sr1result = do.call(
-  rbind,
-  lapply(
-    sr1$learner_list[-1], # omit empty set
-    function (l) {
-      data.frame(
-        pval_stab = l$scores[1],
-        pred_score = l$scores[2],
-        index = l$S)}))
-sr1result$genename = names(sr1$variable_importance)[sr1result$index]
-
-prescreened_genename =
-  sr1result$genename[
-    sr1result$pval_stab >=
-      sort(sr1result$pval_stab, decreasing = TRUE)[prescreen_size]]
-
-# pdf("foo.pdf")
-# plot(sr1result[, c("pred_score", "pval_stab")])
-# dev.off()
-# pdf("goo.pdf")
-# plot(sr1result[sr1result$genename %in% prescreened_genename,
-#                c("pred_score", "pval_stab")])
-# dev.off()
-
-sw = round(sum(s$d^2) / s$d[1]^2)
-# B = 1000
-B = 5000
-
-sr = SRanalysis(
-  t(assay(matnrDEGene))[, prescreened_genename],
-  gsactivity,
-  proj6$spdietcombined[match(colnames(matnrDEGene), proj6$cellNames)],
-  num_reps = 100,
-  pars = list(B = B,
-              stab_test = "mean_sres_score",
-              alpha_stab = 1, # force to choose Top 10 percent of sets
-              size_weight = seq(1, sw)),
-  verbose = 2,
-  seed = 123)
-
-# saveRDS(sr, file = paste0("sr_average_prescreen_cor_stab.", tgtct, ".", gsname, ".", sw, ".", B, ".rds"))
-sr = readRDS(paste0("sr_average_prescreen_cor_stab.", tgtct, ".", gsname, ".", sw, ".", B, ".rds"))
 ```
 
 Inspect result.
@@ -1600,18 +1534,13 @@ Inspect result.
 ```{r}
 sr$varnames[sr$results$SR$selection_probs > 0.5]
 sr$varnames[sr$results$SRdiff$selection_probs > 0.5]
+
 ggplot(
   data = cbind(as.data.frame(t(assay(matnrDEGene))),
                data.frame(gsactivity = gsactivity,
                           Sample = as.character(matnrDEGene$Sample))),
   aes(
-    # x = Gene.Hmgcs1, # REACTOME_CHOLESTEROL_BIOSYNTHESIS%%M16227
-    # x = Gene.Cyp2a2, # GOBP_FATTY_ACID_METABOLIC_PROCESS%%M17829 suggestive
-    # x = Gene.Il1r1, # KEGG_APOPTOSIS%%M8492
-    x = Gene.Bcl2l1, # KEGG_APOPTOSIS%%M8492 suggestive
-    # x = Gene.Il1r1, # GOBP_CELL_MIGRATION%%M40389 suggestive
-    # x = Gene.Ccr5, # GOBP_CELL_MIGRATION%%M40389 nonstable
-    # x = Gene.Igfbp3, # GOBP_INSULIN_LIKE_GROWTH_FACTOR_RECEPTOR_SIGNALING_PATHWAY%%M12608
+    x = Gene.Il1r1, # HALLMARK_TNFA_SIGNALING_VIA_NFKB%%M5890
     y = gsactivity)) +
   geom_point(size = 0.3) +
   stat_smooth(method = lm) +
