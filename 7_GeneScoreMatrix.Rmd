@@ -467,22 +467,22 @@ library(SAVER)
 
 mat2 = readRDS("mat2.rds")
 
-# saver1 = saver(pred.genes = 1:3000, pred.genes.only = TRUE, do.fast = FALSE, x = mat2, ncores = 12, size.factor = 1)
+# saver1 = saver(pred.genes = 1:3000, pred.genes.only = TRUE, do.fast = FALSE, x = mat2, ncores = 10, size.factor = 1)
 # saveRDS(saver1, file = "saver1.rds")
 # 
-# saver2 = saver(pred.genes = 3001:6000, pred.genes.only = TRUE, do.fast = FALSE, x = mat2, ncores = 12, size.factor = 1)
+# saver2 = saver(pred.genes = 3001:6000, pred.genes.only = TRUE, do.fast = FALSE, x = mat2, ncores = 10, size.factor = 1)
 # saveRDS(saver2, file = "saver2.rds")
 # 
-# saver3 = saver(pred.genes = 6001:9000, pred.genes.only = TRUE, do.fast = FALSE, x = mat2, ncores = 12, size.factor = 1)
+# saver3 = saver(pred.genes = 6001:9000, pred.genes.only = TRUE, do.fast = FALSE, x = mat2, ncores = 10, size.factor = 1)
 # saveRDS(saver3, file = "saver3.rds")
 # 
-# saver4 = saver(pred.genes = 9001:12000, pred.genes.only = TRUE, do.fast = FALSE, x = mat2, ncores = 12, size.factor = 1)
+# saver4 = saver(pred.genes = 9001:12000, pred.genes.only = TRUE, do.fast = FALSE, x = mat2, ncores = 10, size.factor = 1)
 # saveRDS(saver4, file = "saver4.rds")
 # 
-# saver5 = saver(pred.genes = 12001:15000, pred.genes.only = TRUE, do.fast = FALSE, x = mat2, ncores = 12, size.factor = 1)
+# saver5 = saver(pred.genes = 12001:15000, pred.genes.only = TRUE, do.fast = FALSE, x = mat2, ncores = 10, size.factor = 1)
 # saveRDS(saver5, file = "saver5.rds")
 # 
-# saver6 = saver(pred.genes = 15001:nrow(mat2), pred.genes.only = TRUE, do.fast = FALSE, x = mat2, ncores = 12, size.factor = 1)
+# saver6 = saver(pred.genes = 15001:nrow(mat2), pred.genes.only = TRUE, do.fast = FALSE, x = mat2, ncores = 10, size.factor = 1)
 # saveRDS(saver6, file = "saver6.rds")
 # 
 # saver1 = readRDS("saver1.rds")
