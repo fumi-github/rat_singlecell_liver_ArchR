@@ -457,7 +457,7 @@ summary(colSums(mat2))
 plot(assay(mat)[, 1], mat2[, 1])
 ```
 
-# Impute GeneScoreMatrix, as in sc-RNAseq; save result
+# Impute GeneScoreMatrix, as in sc-RNAseq
 
 Run SAVER on different machines.
 https://mohuangx.github.io/SAVER/articles/saver-tutorial.html
