@@ -651,7 +651,7 @@ ggplot(
       col = factor(group)))
 ```
 
-## Test difference and plot cell type composition
+## Test difference of cell type composition and plot
 
 ```{r}
 data = as.data.frame(result)
