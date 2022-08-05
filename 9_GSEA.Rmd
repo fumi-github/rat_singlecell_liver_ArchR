@@ -180,8 +180,6 @@ dseed = 1
 padog =
   readRDS(paste0(
     "padog/",
-    # "padog.GeneScore/",
-    # "padog.Motif/",
     paste0(c(gname, tgt, bgd, dseed, "rds"), collapse = ".")))
 
 x = padog[c(1:7, 9)]
@@ -393,7 +391,7 @@ heatmap.2(
   density.info = "none")
 ```
 
-# Result: representative enriched gene sets
+# Representative enriched gene sets
 
 ```{r}
 gname = "Clusters4BTmyelospdietcombined"
