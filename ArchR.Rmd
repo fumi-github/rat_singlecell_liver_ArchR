@@ -3,6 +3,8 @@ title: "ArchR"
 output: html_notebook
 ---
 
+Code snippets from ArchR tutorial
+
 ## 7.3 Identifying Marker Genes
 
 ```{r}
@@ -137,258 +139,6 @@ No:  150Ktopvar adjvar02 adjvar05
 ArchRBrowser(proj2)
 ```
 
-## Clustering with taylored parameter
-
-```{r}
-proj6 = proj5b
-
-saveArchRProject(
-  ArchRProj = proj6,
-  # outputDirectory = "Save-Proj6.adjvar04Leiden_adjvar01Leiden.featurenormbyscale2",
-  # outputDirectory = "Save-Proj6.adjvar04Leiden_adjvar02Leiden.featurenormbyscale2",
-  # outputDirectory = "Save-Proj6.adjvar04Leiden_adjvar03Leiden.featurenormbyscale2",
-  # outputDirectory = "Save-Proj6.adjvar04Leiden_adjvar04Leiden.featurenormbyscale2",
-  outputDirectory = "Save-Proj6.adjvar04Leiden_adjvar05Leiden.featurenormbyscale2",
-  dropCells = TRUE
-)
-proj6 = loadArchRProject("Save-Proj6.adjvar04Leiden_adjvar01Leiden.featurenormbyscale2/")
-```
-
-```{r}
-proj6 <- addClusters(
-    input = proj6,
-    reducedDims = "myLSI4",
-    method = "Seurat",
-    algorithm = 4,
-    resolution = 0.5,
-    name = "Clusters4res05", # Leiden
-    force = TRUE
-)
-```
-
-adjvar04Leiden_adjvar01Leiden Clusters4res05
-1-7   hepatocyte
-12    stellate
-13-14 endothelial cell
-8-9   macrophage, neutrophil
-11    B-cell
-10    T-cell, NK cell
-
-adjvar04Leiden_adjvar01Leiden Clusters4res02
-1-3  hepatocyte
-6    stellate
-7    endothelial cell
-4    macrophage, neutrophil
-5    B-cell, T-cell, NK cell
-
-adjvar04Leiden_adjvar01Leiden Clusters4res015
-1-2  hepatocyte (C2 is neither portal node nor central vein)
-5    stellate
-6    endothelial cell
-3    macrophage, neutrophil
-4    B-cell, T-cell, NK cell
-
-
-```{r}
-g = proj6$Clusters4res05
-g[g %in% paste0("C", 1:7)] = "hepatocyte"
-g[g %in% paste0("C", 8:11)] = "WBC"
-g[g %in% paste0("C", 12)] = "stellate"
-g[g %in% paste0("C", 13:14)] = "endothelial"
-proj6$Clusterscoarse2 = g
-
-g = proj6$Clusters4res05
-g[g %in% paste0("C", 1:7)] = "hepato"
-g[g %in% paste0("C", 8:9)] = "myelo"
-g[g %in% paste0("C", 10)] = "T_NK"
-g[g %in% paste0("C", 11)] = "B"
-g[g %in% paste0("C", 12)] = "stellate"
-g[g %in% paste0("C", 13:14)] = "endothelial"
-proj6$Clusters4BTmyelo = g
-
-g = proj6$Sample
-g[g %in% c("m154207", "m167203")] = "HFC"
-g[g %in% c("m168101")] = "washout"
-g[g %in% c("m154211", "m167108")] = "sp"
-proj6$diet = g
-
-g = proj6$Sample
-g[g %in% c("m154211", "m167108")] = "sp"
-proj6$spdietcombined = g
-
-proj6$Clusters4BTmyelodiet =
-  paste0(proj6$Clusters4BTmyelo,
-         "_",
-         proj6$diet)
-
-proj6$Clusters4BTmyelospdietcombined =
-  paste0(proj6$Clusters4BTmyelo,
-         "_",
-         proj6$spdietcombined)
-```
-
-Don't run this in parallel.
-
-```{r}
-proj6 <- addGroupCoverages(
-  ArchRProj = proj6,
-  groupBy = "Clusters4res05")
-```
-
-### LINEAR REGRESSION
-
-```{r}
-# Case 1: Correct for samples; Clusters4res05
-# This is more stringent but possibly less powerful
-# compared to the Bayesian correction by COMBAT.
-# Currently, I prefer the conservative choice.
-sampleLabels = unique(as.character(mat$Sample))
-for (s in sampleLabels) {
-  print(s)
-  x = assay(mat)[, which(mat$Sample == s),
-                  drop = FALSE]
-  x = x - rowMeans(x) 
-  assay(mat)[, which(mat$Sample == s)] = x
-  rm(x)
-}
-
-# Case 2: Don't correct for samples; Clusters4BTmyelodiet Clusters4BTmyelospdietcombined
-assay(mat) = assay(mat) - rowMeans(assay(mat))
-
-
-gname = "Clusters4res05"
-g = mat@colData[[gname]]
-ClustersLabels = unique(as.character(g))
-ClustersLabels = ClustersLabels[
-  order(as.numeric(sub("^C", "", ClustersLabels)))]
-
-gname = "Clusters4BTmyelodiet"
-gname = "Clusters4BTmyelospdietcombined"
-g = mat@colData[[gname]]
-ClustersLabels = unique(as.character(g))
-
-x =
-  sapply(
-    ClustersLabels,
-    function (c) { matrix(1 * (g == c), ncol = 1) })
-# x = x -
-#   matrix(
-#     colMeans(x),
-#     nrow = nrow(x),
-#     ncol = ncol(x),
-#     byrow = TRUE)
-# x = cbind(x,
-#   sapply(
-#     sort(unique(as.character(mat$Sample)))[-1],
-#     function (s) { matrix(1 * (mat$Sample == s), ncol = 1) }))
-
-result = broom::tidy(
-  lm(y ~ 0 + x,
-     data = list(y = t(assay(mat)), x = x)))
-result$term = sub("^x", "", result$term)
-
-tgt = "C9"
-tgt = "hepato_HFC"
-tgt = "hepato_sp"
-tgt = "myelo_HFC"
-
-library(dplyr)
-plotdata = result %>%
-  filter(term == tgt)
-plotdata$name = rowData(mat)$name[plotdata$response]
-
-ggplot(
-  data = plotdata[plotdata$estimate > 1, ],
-  aes(x = estimate,
-      y = abs(statistic))) +
-  geom_text(aes(label = name), size = 3)
-
-output =
-  plotdata %>%
-  select(name, statistic)
-write.table(
-  output,
-  paste0("cluster.", tgt, "_genes.Linnorm.saver.statistic.rnk"),
-  row.names = FALSE,
-  col.names = FALSE,
-  quote = FALSE,
-  sep = "\t")
-
-
-tgt = "C9"; bgd = "C8"
-tgt = "C14"; bgd = "C13"
-tgt = "hepato_HFC"; bgd = "hepato_sp"
-tgt = "myelo_HFC"; bgd = "myelo_sp"
-
-tgt = "hepato_m154207"; bgd = "hepato_sp"
-tgt = "hepato_m167203"; bgd = "hepato_sp"
-tgt = "hepato_m168101"; bgd = "hepato_sp"
-
-tgt = "stellate_m154207"; bgd = "stellate_sp"
-tgt = "stellate_m167203"; bgd = "stellate_sp"
-tgt = "stellate_m168101"; bgd = "stellate_sp"
-
-tgt = "endothelial_m154207"; bgd = "endothelial_sp"
-tgt = "endothelial_m167203"; bgd = "endothelial_sp"
-tgt = "endothelial_m168101"; bgd = "endothelial_sp"
-
-tgt = "myelo_m154207";  bgd = "myelo_sp"
-tgt = "myelo_m167203";  bgd = "myelo_sp"
-tgt = "myelo_m168101";  bgd = "myelo_sp"
-
-tgt = "B_m154207";  bgd = "B_sp"
-tgt = "B_m167203";  bgd = "B_sp"
-tgt = "B_m168101";  bgd = "B_sp"
-
-tgt = "T_NK_m154207";  bgd = "T_NK_sp"
-tgt = "T_NK_m167203";  bgd = "T_NK_sp"
-tgt = "T_NK_m168101";  bgd = "T_NK_sp"
-
-
-plotdata = result %>%
-  filter(term %in% c(tgt, bgd)) %>%
-  select(c("response", "term", "estimate", "std.error"))
-plotdata =
-  tidyr::pivot_wider(
-    data = plotdata,
-    names_from = term,
-    values_from = c(estimate, std.error),
-    names_sep = ".")
-plotdata[, "estimate.diff"] =
-  plotdata[, paste0("estimate.", tgt)] -
-  plotdata[, paste0("estimate.", bgd)]
-plotdata[, "std.error.diff"] =
-  sqrt(plotdata[, paste0("std.error.", tgt)]^2 +
-         plotdata[, paste0("std.error.", bgd)]^2)
-plotdata$statistic.diff =
-  plotdata$estimate.diff / plotdata$std.error.diff
-plotdata$name = rowData(mat)$name[plotdata$response]
-
-ggplot(
-    data = plotdata,
-    aes(x = estimate.C9 / std.error.C9,
-y = estimate.C8 / std.error.C8)) +
-geom_point()
-
-ggplot(
-    data = plotdata,
-    aes(x = estimate.diff,
-        y = abs(statistic.diff))) +
-#  geom_point()
-  geom_text(aes(label = name), size = 3)
-
-output =
-  plotdata %>%
-  select(name, statistic.diff)
-write.table(
-  output,
-  paste0("cluster.", tgt, "vs", bgd, "_genes.Linnorm.saver.statistic.rnk"),
-  row.names = FALSE,
-  col.names = FALSE,
-  quote = FALSE,
-  sep = "\t")
-```
-
 ## 11.1 Identifying Marker Peaks with ArchR
 
 Marker features are features that are unique to a specific cell grouping. These can be very useful in understanding cluster- or cell type-specific biology.
@@ -444,7 +194,6 @@ write.table(
   quote = FALSE,
   sep = "\t")
 ```
-
 
 ## 11.2 Plotting Marker Peaks in ArchR
 ### 11.2.1 Marker Peak Heatmaps
@@ -693,7 +442,7 @@ Use website http://great.stanford.edu/public/html/
 
 ## 12.1 Motif Enrichment in Differential Peaks
 
-14.926 mins 
+14.926 mins
 
 ```{r}
 proj5 <- addMotifAnnotations(
@@ -945,7 +694,7 @@ do.call(cowplot::plot_grid, c(list(ncol = 3),p2))
 # Plot-UMAP-markerMotifs-GeneScoreMatrix.pdf
 ```
 
-# 14.1 Motif Footprinting
+## 14.1 Motif Footprinting
 
 the first thing we need to do is obtain the positions of the relevant motifs. To do this, we call the getPositions() function. This function has an optional parameter called name which can accept the name of the peakAnnotation object from which we would like to obtain the positions. If name = NULL, then ArchR will use the first entry in the peakAnnotation slot. In the example shown below, we do not specify name and ArchR uses the first entry which is our CIS-BP motifs.
 
@@ -970,8 +719,8 @@ seFoot <- getFootprints(
 )
 ```
 
-# 14.2 Normalization of Footprints for Tn5 Bias
-## 14.2.1 Subtracting the Tn5 Bias
+## 14.2 Normalization of Footprints for Tn5 Bias
+### 14.2.1 Subtracting the Tn5 Bias
 
 ```{r}
 plotFootprints(
@@ -984,7 +733,7 @@ plotFootprints(
 )
 ```
 
-## 14.2.2 Dividing by the Tn5 Bias
+### 14.2.2 Dividing by the Tn5 Bias
 
 ```{r}
 plotFootprints(
@@ -1075,7 +824,7 @@ cA <- getCoAccessibility(
 cA[[1]]
 ```
 
-## 15.2.1 Plotting browser tracks of Co-accessibility
+### 15.2.1 Plotting browser tracks of Co-accessibility
 
 ```{r}
 markerGenes = c(
@@ -1109,13 +858,13 @@ plotPDF(plotList = p,
     addDOC = FALSE, width = 5, height = 5)
 ```
 
-# 15.4 Identification of Positive TF-Regulators
+## 15.4 Identification of Positive TF-Regulators
 
 identify TFs whose gene expression is positively correlated to changes in the accessibility of their corresponding motif.  ArchR can identify TFs whose inferred gene scores are correlated to their chromVAR TF deviation z-scores.
 
 low-overlapping cell aggregates
 
-## 15.4.1 Step 1. Identify Deviant TF Motifs
+### 15.4.1 Step 1. Identify Deviant TF Motifs
 
 ```{r}
 seGroupMotif <- getGroupSE(
@@ -1151,7 +900,7 @@ rowData(seZ)$maxDelta <-
   rowMaxs
 ```
 
-## 15.4.2 Step 2. Identify Correlated TF Motifs and TF Gene Score/Expression
+### 15.4.2 Step 2. Identify Correlated TF Motifs and TF Gene Score/Expression
 
 To identify TFs whose motif accessibility is correlated with with their own gene activity (either by gene score or gene expression), we use the correlateMatrices() function and provide the two matrices that we are interested in, in this case the GeneScoreMatrix and the MotifMatrix. As mentioned previously, these correlations are determined across many low-overlapping cell aggregates determined in the lower dimension space specified in the reducedDims parameter.
 
@@ -1166,13 +915,13 @@ corGSM_MM <- correlateMatrices(
 corGSM_MM
 ```
 
-## 15.4.3 Step 3. Add Maximum Delta Deviation to the Correlation Data Frame
+### 15.4.3 Step 3. Add Maximum Delta Deviation to the Correlation Data Frame
 
 ```{r}
 corGSM_MM$maxDelta <- rowData(seZ)[match(corGSM_MM$MotifMatrix_name, rowData(seZ)$name), "maxDelta"]
 ```
 
-## 15.4.4 Step 4. Identify Positive TF Regulators
+### 15.4.4 Step 4. Identify Positive TF Regulators
 
 we consider positive regulators as those TFs whose correlation between motif and gene score (or gene expression) is greater than 0.5 with an adjusted p-value less than 0.01 and a maximum inter-cluster difference in deviation z-score that is in the top quartile.
 
@@ -1198,4 +947,3 @@ p <- ggplot(data.frame(corGSM_MM), aes(cor, maxDelta, color = TFRegulator)) +
 
 p
 ```
-
