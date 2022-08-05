@@ -456,6 +456,7 @@ dbname ="GOBP"; gsname = "GOBP_RESPONSE_TO_DRUG%%M6886"
 dbname ="GOBP"; gsname = "GOBP_RESPONSE_TO_CYTOKINE%%M15783"
 dbname ="GOBP"; gsname = "GOBP_LIPID_LOCALIZATION%%M15749"
 dbname ="GOBP"; gsname = "GOBP_REGULATION_OF_MAPK_CASCADE%%M10496"   #!!! rn7
+dbname ="GOBP"; gsname = "GOBP_REGULATION_OF_MACROPHAGE_DERIVED_FOAM_CELL_DIFFERENTIATION%%M12121"   #!!! rn7
 tgt = "hepato_m168101"; bgd = "hepato_sp"
 #!!! rn7 ALL
 dbname ="KEGG"; gsname = "KEGG_PPAR_SIGNALING_PATHWAY%%M13088"
@@ -471,6 +472,7 @@ dbname ="GOBP"; gsname = "GOBP_RESPONSE_TO_DRUG%%M6886"
 dbname ="GOBP"; gsname = "GOBP_ORGANIC_ACID_BIOSYNTHETIC_PROCESS%%M11689"
 dbname ="GOBP"; gsname = "GOBP_REGULATION_OF_MAPK_CASCADE%%M10496"
 dbname ="GOBP"; gsname = "GOBP_INSULIN_LIKE_GROWTH_FACTOR_RECEPTOR_SIGNALING_PATHWAY%%M12608"
+dbname ="REACTOME"; gsname = "REACTOME_REGULATION_OF_INSULIN_LIKE_GROWTH_FACTOR_IGF_TRANSPORT_AND_UPTAKE_BY_INSULIN_LIKE_GROWTH_FACTOR_BINDING_PROTEINS_IGFBPS%%M27285"
 
 tgt = "stellate_m154207"; bgd = "stellate_sp"
 # dbname ="KEGG"; gsname = "KEGG_LYSINE_DEGRADATION%%M13720"
@@ -544,12 +546,12 @@ dbname ="WIKIPATHWAYS"; gsname = "WP_NONALCOHOLIC_FATTY_LIVER_DISEASE%%M39806"
 #
 dbname ="KEGG"; gsname = "KEGG_CYTOKINE_CYTOKINE_RECEPTOR_INTERACTION%%M9809"
 #
-dbname ="REACTOME"; gsname = "REACTOME_EXTRACELLULAR_MATRIX_ORGANIZATION%%M610"
-dbname ="REACTOME"; gsname = "REACTOME_DEGRADATION_OF_THE_EXTRACELLULAR_MATRIX%%M587"
 dbname ="GOBP"; gsname = "GOBP_CONNECTIVE_TISSUE_REPLACEMENT%%M24786"
+dbname ="REACTOME"; gsname = "REACTOME_EXTRACELLULAR_MATRIX_ORGANIZATION%%M610"
 dbname ="REACTOME"; gsname = "REACTOME_COLLAGEN_FORMATION%%M631"
-dbname ="REACTOME"; gsname = "REACTOME_COLLAGEN_DEGRADATION%%M26953"
+dbname ="REACTOME"; gsname = "REACTOME_DEGRADATION_OF_THE_EXTRACELLULAR_MATRIX%%M587"
 dbname ="REACTOME"; gsname = "REACTOME_ACTIVATION_OF_MATRIX_METALLOPROTEINASES%%M26976"
+dbname ="REACTOME"; gsname = "REACTOME_COLLAGEN_DEGRADATION%%M26953"
 #
 dbname ="KEGG"; gsname = "KEGG_TGF_BETA_SIGNALING_PATHWAY%%M2642"  # rno04350
 dbname ="WIKIPATHWAYS"; gsname = "WP_TGFBETA_SIGNALING_PATHWAY%%M39432"
@@ -583,3 +585,218 @@ dbname ="GOBP"; gsname = "GOBP_INFLAMMATORY_RESPONSE%%M10617"  # mostly up
 dbname ="GOBP"; gsname = "GOBP_CYTOKINE_PRODUCTION%%M13156"
 dbname ="GOBP"; gsname = "GOBP_RESPONSE_TO_WOUNDING%%M5634"  # up&down
 ```
+
+# Apoptosis
+
+```{r}
+dbname ="KEGG"; gsname = "KEGG_APOPTOSIS%%M8492"
+gs = gslists[[dbname]][[gsname]]
+
+topgenes = c(
+  "Bcl2", "Bcl2l1",
+  "Chp2", "Csf2rb",
+  "Fas", "Faslg",
+  "Ikbkb", "Il1a", "Il1b", "Il1r1", "Irak3",
+  "Nfkb1",
+  "Pik3cb",
+  "Tnf"
+)
+```
+
+# IGF axis
+
+```{r}
+dbname ="GOBP"; gsname = "GOBP_INSULIN_LIKE_GROWTH_FACTOR_RECEPTOR_SIGNALING_PATHWAY%%M12608"
+gs = gslists[[dbname]][[gsname]]
+gs = union(gs,
+           c("Igf1", "Igf2",
+             "Igfals",
+             "Igfbp1", "Igfbp2", "Igfbp3", "Igfbp4", "Igfbp5", "Igfbp6", "Igfbp7",
+             "Igf2bp1", "Igf2bp2", "Igf2bp3", "Igfbpl1", "Igflr1",
+             "Igf1r", "Igf2r",
+             "Insr"))
+
+topgenes = c(
+  "Igfbp1", "Igfbp3", "Igfbp6", "Igfbpl1",
+  "Igf2r",
+  "Bmp2", "Cilp", "Crim1", "Nkx3-1", "Wnt1"
+)
+```
+
+# Fibrosis
+
+Combine relevant gene sets
+
+```{r}
+targetdbgs = rbind(
+  data.frame(dbname ="REACTOME", gsname = "REACTOME_EXTRACELLULAR_MATRIX_ORGANIZATION%%M610"),
+  data.frame(dbname ="REACTOME", gsname = "REACTOME_COLLAGEN_FORMATION%%M631"),
+  data.frame(dbname ="REACTOME", gsname = "REACTOME_DEGRADATION_OF_THE_EXTRACELLULAR_MATRIX%%M587"),
+  data.frame(dbname ="REACTOME", gsname = "REACTOME_ACTIVATION_OF_MATRIX_METALLOPROTEINASES%%M26976"),
+  data.frame(dbname ="REACTOME", gsname = "REACTOME_COLLAGEN_DEGRADATION%%M26953"))
+# Actually, all in REACTOME_EXTRACELLULAR_MATRIX_ORGANIZATION%%M610
+
+gs = unique(
+  do.call(
+    c,
+    lapply(
+      1:nrow(targetdbgs),
+      function (i) {
+        gslists[[ targetdbgs$dbname[i] ]][[ targetdbgs$gsname[i] ]]
+      })))
+
+topgenes = c(
+  "A2m", "Adamts1",
+  "Bgn", "Bmp2",
+  "Cd44", "Col1a2",
+  "Fbln5", "Fga",
+  "Itgad", "Itgam", "Itgb7",
+  "Ltbp2", "Ltbp3",
+  "Matn3", "Mmp2", "Mmp7", "Mmp20", "Mmp24",
+  "Ncan",
+  "Pdgfa", "Plec", "Plod2",
+  "Scube1",
+  "Tnn"
+  )
+
+topgenesbytargetdbgs =
+  do.call(
+    cbind,
+    lapply(
+      1:nrow(targetdbgs),
+      function (i) {
+        matrix(
+          1 * (topgenes %in%
+                 gslists[[ targetdbgs$dbname[i] ]][[ targetdbgs$gsname[i] ]]),
+          ncol = 1,
+          dimnames = list(
+            topgenes,
+            targetdbgs$gsname[i]))
+      }))
+```
+
+```{r}
+resultcompared %>%
+  filter(tgt == "T_NK_m167203") %>%
+  filter(genename %in% gs) %>%
+  filter(FDR < 0.01) %>%
+  filter(abs(estimate) > log2(1.2)) %>%
+  # filter(p > 10^-20) %>%
+  filter(p < 10^-6) %>%
+  arrange(estimate)
+
+
+for (g in sort(topgenes$genename)) {
+  print(resultcompared[resultcompared$genename == g, ])
+}
+
+x = 
+resultcompared[resultcompared$genename %in% topgenes$genename, ] %>%
+  select(genename, estimate, tgt) %>%
+  tidyr::pivot_wider(values_from = estimate, names_from = tgt)
+x = as.data.frame(x)
+rownames(x) = x$genename
+x = x[, -1]
+heatmap(as.matrix(x))
+
+resultcompared[resultcompared$genename == "Mmp7", ]
+resultcompared[resultcompared$genename == "Mmp24", ]
+resultcompared[resultcompared$genename == "Mmp2", ]
+```
+
+Mmp7
+- UP in hepato_m154207 hepato_m167203 myelo_m167203
+- gelatinases (MMPs -2 and -9) are involved early in the fibrogenesis mechanism, since
+  destruction of the low-density basement membrane-like material of the perisinusoidal
+  space of the normal liver is a prerequisite for fibrillar matrix development (remodelling)
+- Our results shows involvement of gelatinase Mmp7
+- This agrees with Fig2 of 10.1016/s0168-8278(00)00037-4
+- This agrees with serum Mmp7 UP in Supp Table A of 10.1371/journal.pone.0167001
+- This explains utiltity of Mmp7 as biomarker <https://doi.org/10.1038/s41598-021-82315-z>
+Mmp24
+- UP in hepato_m154207 hepato_m167203 endothelial_m154207 endothelial_m167203
+Mmp2
+- DOWN in hepato_m154207 hepato_m167203 endothelial_m154207
+- Why? Switch from Mmp2 to Mmp7?
+- This disagrees with Fig2 of 10.1016/s0168-8278(00)00037-4
+- This agrees with serum Mmp2 DOWN in Supp Table A of 10.1371/journal.pone.0167001
+
+See Evernote "collagen in liver"
+
+```{r}
+dbname ="REACTOME"; gsname = "REACTOME_COLLAGEN_FORMATION%%M631"
+gs = gslists[[dbname]][[gsname]]
+topgenes =
+  resultcompared %>%
+  filter(genename %in% gs) %>%
+  filter(FDR < 0.01) %>%
+  filter(abs(estimate) > log2(1.3)) %>%
+  arrange(p) %>%
+  group_by(celltype) %>%
+  distinct(genename, .keep_all = TRUE) %>%
+  slice_min(p, n = 3) %>%
+  ungroup() %>%
+  distinct(genename)
+
+resultcompared[resultcompared$genename == "Mmp20", ]
+resultcompared[resultcompared$genename == "Loxl1", ]
+resultcompared[resultcompared$genename == "Col15a1", ]
+
+resultcompared[resultcompared$genename == "Col4a1", ]
+```
+
+Mmp7 (see above)
+Mmp20
+- UP in hepato_m154207 hepato_m167203 myelo_m167203
+- False positive. Upstream Mmp7 in genome.
+Loxl1
+- DOWN in hepato_m154207 hepato_m167203
+- catalyzes the first step in the formation of crosslinks in collagen and elastin
+Col15a1
+- UP in hepato_m154207 hepato_m167203 myelo_m167203
+- Type XV collagen has a wide tissue distribution but the strongest expression
+  is localized to basement membrane zones so it may function to adhere basement
+  membranes to underlying connective tissue stroma.
+
+Col4a1
+- UP in hepato_m167203 => actually secreted from hepatocyte <http://doi.org/10.1126/science.6828863>
+
+```{r}
+dbname ="REACTOME"; gsname = "REACTOME_EXTRACELLULAR_MATRIX_ORGANIZATION%%M610"
+dbname ="REACTOME"; gsname = "REACTOME_DEGRADATION_OF_THE_EXTRACELLULAR_MATRIX%%M587"
+gs = gslists[[dbname]][[gsname]]
+resultcompared %>%
+  filter(genename %in% gs) %>%
+  filter(abs(estimate) > log2(1.3)) %>%
+  slice_min(p, n = 20)
+
+resultcompared[resultcompared$genename == "Scube1", ]
+resultcompared[resultcompared$genename == "Pdgfa", ]
+resultcompared[resultcompared$genename == "A2m", ]
+```
+
+Scube1
+- UP in hepato_m154207 hepato_m167203 hepato_m168101
+- This gene encodes a cell surface glycoprotein that is a member of the SCUBE
+  (signal peptide, CUB domain, EGF (epidermal growth factor)-like protein) family.
+- Could function as an adhesive molecule and its matrix bound and soluble fragments
+  may play a critical role in vascular biology.
+
+Pdgfa
+- UP in hepato_m154207 hepato_m167203 hepato_m168101
+- The encoded preproprotein is proteolytically processed to generate platelet-derived
+  growth factor subunit A, which can homodimerize, or alternatively, heterodimerize with
+  the related platelet-derived growth factor subunit B.
+- Plays an important role in wound healing.
+- Platelet-derived growth factor (PDGF) is one of the most potent mitogen for
+  cultured HSC isolated from rat, mouse, or human liver.
+- Agrees with: Spontaneous hepatic fibrosis in transgenic mice overexpressing PDGF-A
+  <https://doi.org/10.1016/j.gene.2008.05.022>
+  
+A2m
+- DOWN hepato_m154207 hepato_m167203
+- The protein encoded by this gene is a protease inhibitor and cytokine transporter.
+  It uses a bait-and-trap mechanism to inhibit a broad spectrum of proteases, including
+  trypsin, thrombin and collagenase. It can also inhibit inflammatory cytokines, and it
+  thus disrupts inflammatory cascades.
+- known serum biomarker TODO search
