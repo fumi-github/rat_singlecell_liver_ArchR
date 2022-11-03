@@ -1429,6 +1429,14 @@ ggsave(p1, filename = paste0("ppinteractionwithgs.", tgtct, ".", gsname, ".pdf")
 
 ## Stabilized regression with gene set activity score as dependent variable
 
+The option `stab_test = "mean_sres_score"` is implemented in
+<https://github.com/fumi-github/StabilizedRegression-R>
+
+The predictor variables X are `matnrDEGene`.
+The response variable Y is `gsactivity`.
+The environments are `proj6$spdietcombined[match(colnames(matnrDEGene), proj6$cellNames)]`.
+These should be defined above.
+
 ```{r}
 library(StabilizedRegression)
 
@@ -1504,20 +1512,79 @@ p1 =
 ggsave(p1, file = "predmods_stab_pval_stab_mse.pdf", width = 6, height = 6)
 ```
 
-Actual run of stabilized regression.
+For each variable pair (among `prescreen_size`),
+let's say we want both to be included in 1 set (i.e., the expectation is 1).
+The size of a set is randomly chosen from `size_weight = seq(1, sw)`.
+
+Let `p = prescreen_size`.
+The probability of a pair being included in a set of size 1 is 1*0/p/(p-1).
+The probability of a pair being included in a set of size 2 is 2*1/p/(p-1).
+The probability of a pair being included in a set of size 3 is 3*2/p/(p-1).
+The probability of a pair being included in a set is (sw^2 - 1)/3/p/(p-1).
+
+N.B.
+$f(1) = 1*0$
+$f(2) = 1*0 + 2*1$
+$f(3) = 1*0 + 2*1 + 3*2$
+$f(i) = (i^2 - 1)*i/3$
+
+```{r}
+Beachpaironce = function (prescreen_size, sw) {
+  round(prescreen_size * (prescreen_size - 1) * 3 / (sw^2 - 1))
+}
+```
+
+`StabilizedRegression` searches for the best set of predictors.
 
 ```{r}
 sw = 20
-# B = 1000
-B = 5000
-# B = round(prescreen_size^2 / ((sw+1)/2) / (((sw+1)/2)-1)) # for each variable pair, expect 1 set to include both
+x = StabilizedRegression(
+  t(assay(matnrDEGene)),
+  gsactivity,
+  proj6$spdietcombined[match(colnames(matnrDEGene), proj6$cellNames)],
+  pars = list(B = Beachpaironce(prescreen_size, sw) * 10,
+              # stab_test = "mean_sres",
+              stab_test = "mean_sres_score",
+              alpha_stab = 1, # force to choose Top 10 percent of sets
+              size_weight = seq(1, sw),
+              prescreen_size = prescreen_size),
+  verbose = 2,
+  seed = 123)
 
+dataplot = data.frame(
+  score = XGene %*% gsactivity / sqrt(nrow(sXgs$v)) / sqrt(nrow(sXgs$v) - 1),
+  name  = rownames(XGene)
+)
+dataplot$variable_importance =
+  x$variable_importance[match(dataplot$name, names(x$variable_importance))]
+dataplot$variable_importance_pred =
+  x$variable_importance_pred[match(dataplot$name, names(x$variable_importance_pred))]
+dataplot$variable_importance_diff =
+  x$variable_importance_diff[match(dataplot$name, names(x$variable_importance_diff))]
+dataplot$name = sub("^Gene.", "", dataplot$name)
+ggplot(data = dataplot,
+       aes(x = score,
+           y = variable_importance)) +
+  geom_point() +
+  geom_text(data = dataplot[dataplot$variable_importance != 0, ],
+            aes(x = score,
+                y = variable_importance_pred,
+                label = name),
+            vjust = 0,
+            size = 4)
+```
+
+`SRanalysis` internally repeats `StabilizedRegression` for `num_reps` times,
+and computes the stability selection probability for each predictor variable.
+
+```{r}
+sw = 20
 sr = SRanalysis(
   t(assay(matnrDEGene)),
   gsactivity,
   proj6$spdietcombined[match(colnames(matnrDEGene), proj6$cellNames)],
   num_reps = 100,
-  pars = list(B = B,
+  pars = list(B = 5000,
               stab_test = "mean_sres_score",
               alpha_stab = 1, # force to choose Top 10 percent of sets
               size_weight = seq(1, sw),
