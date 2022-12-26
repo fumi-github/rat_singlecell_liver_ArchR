@@ -568,6 +568,205 @@ NMF::aheatmap(
   filename = "NMF.heatmap.pdf", width = 5, height = 5)
 ```
 
+## Hyperparameters for the discovery of factors (modules) of TF regulation
+
+Post-hoc analysis of the hyperparameters for machine learning by GENIE3 and NMF.
+This section can be skipped.
+Precomputed results are available as GENIE3_NMF_hyperparameters.zip from figshare.
+
+TF modules were computed in two steps, first the regulator-regulatee matrix was computed using GENIE3, then the modules were extracted by nonnegative matrix factorization using NMF. We assessed the accuracy of TF module discovery under a range of hyperparameters by randomly dividing the hepatocytes into two sets of halves (4136 nuclei in each set), computing in each set the regulator-regulatee matrix, approximating the matrix using NMF (with nonnegative double singular value decomposition seed), and then calculating the correlation coefficient between the two NMF-approximated regulator-regulatee matrices. A larger correlation coefficient indicates a higher accuracy. To estimate the noise level, we performed the same process in each set but with nuclei labeling of the Gene Score Matrix randomly permuted while keeping the Motif Matrix intact. Under each setting of the hyperparameter, we performed five permutation trials.
+
+GENIE3.
+
+```{r}
+for (samplingseed in 1:5) {
+  print(samplingseed)
+  
+  set.seed(samplingseed)
+  A = sort(sample(1:ncol(matnrDEGene), floor(ncol(matnrDEGene) / 2)))
+  B = setdiff(1:ncol(matnrDEGene), A)
+  perm = sample(1:ncol(matnrDEGene))
+  
+  library(GENIE3)
+  
+  set.seed(123)
+  weightMatrix = GENIE3(
+    rbind(
+      # assay(matnrDEGene)[, A],
+      # assay(matnrDEMotif)[, A],
+      # x[, A]),
+      # assay(matnrDEGene)[, B],
+      # assay(matnrDEMotif)[, B],
+      # x[, B]),
+      # assay(matnrDEGene)[, perm][, A],
+      # assay(matnrDEMotif)[, A],
+      # x[, A]),
+      assay(matnrDEGene)[, perm][, B],
+      assay(matnrDEMotif)[, B],
+      x[, B]),
+    targets = rownames(matnrDEGene),
+    regulators = c(rownames(matnrDEMotif), rownames(x)),
+    nCores = 22,
+    K = 1, # unset, 1 or 30
+    verbose = TRUE)
+  
+  saveRDS(weightMatrix,
+          file = paste0("GENIE3.",  tgtct,
+                        ".samplingseed_", samplingseed,
+                        # ".A.rds"))
+                        # ".B.rds"))
+                        # ".permA.rds"))
+                        # ".permB.rds"))
+                        # ".A.K_1.rds"))
+                        # ".B.K_1.rds"))
+                        # ".permA.K_1.rds"))
+                        ".permB.K_1.rds"))
+                        # ".A.K_30.rds"))
+                        # ".B.K_30.rds"))
+                        # ".permA.K_30.rds"))
+                        # ".permB.K_30.rds"))
+}
+```
+
+NMF.
+
+```{r}
+for (samplingseed in 1:5) {
+  print(samplingseed)
+  weightMatrix =
+    readRDS(paste0("GENIE3.",  tgtct,
+                   ".samplingseed_", samplingseed,
+                   # ".A.rds"))
+                   # ".B.rds"))
+                   # ".permA.rds"))
+                   # ".permB.rds"))
+                   # ".A.K_1.rds"))
+                   # ".B.K_1.rds"))
+                   # ".permA.K_1.rds"))
+                   # ".permB.K_1.rds"))
+                   ".A.K_30.rds"))
+                   # ".B.K_30.rds"))
+                   # ".permA.K_30.rds"))
+                   # ".permB.K_30.rds"))
+  weightMatrixraw = weightMatrix
+  
+  x = min(colQuantiles(weightMatrix, probs = 0.95))
+  weightMatrix = weightMatrix - x
+  weightMatrix[weightMatrix < 0] = 0
+  
+  weightMatrix = weightMatrix[rowMeans(weightMatrix) >
+                                quantile(rowMeans(weightMatrix), 0.85), ] # arbitrary
+  
+  # zero columns cause error in nmf
+  weightMatrix = weightMatrix[, colMaxs(weightMatrix) > 0]
+  
+  library(NMF)
+  for (r in 4) { # c(2, 4, 6, 8)
+    print(r)
+    res.nndsvd = nmf(weightMatrix,
+                     rank = r,
+                     seed = 'nndsvd')
+    
+    x = basis(res.nndsvd) %*% coef(res.nndsvd)
+    weightMatrixapprox = weightMatrixraw * 0
+    weightMatrixapprox =
+      x[match(rownames(weightMatrixapprox), rownames(x)),
+        match(colnames(weightMatrixapprox), colnames(x))]
+    weightMatrixapprox[is.na(weightMatrixapprox)] = 0
+    rownames(weightMatrixapprox) = rownames(weightMatrixraw)
+    saveRDS(weightMatrixapprox,
+            file = paste0("GENIE3.NMFnndsvd.rank",  r, ".",
+                          tgtct,
+                          ".samplingseed_", samplingseed,
+                          # ".A.rds"))
+                          # ".B.rds"))
+                          # ".permA.rds"))
+                          # ".permB.rds"))
+                          # ".A.K_1.rds"))
+                          # ".B.K_1.rds"))
+                          # ".permA.K_1.rds"))
+                          # ".permB.K_1.rds"))
+                          ".A.K_30.rds"))
+                          # ".B.K_30.rds"))
+                          # ".permA.K_30.rds"))
+                          # ".permB.K_30.rds"))
+  }
+}
+```
+
+Summarize and plot.
+
+```{r}
+datasmall =
+  do.call(
+    rbind,
+    lapply(
+      c(2, 4, 6, 8),
+      # 4,
+      function(r) {
+        do.call(
+          rbind,
+          lapply(
+            1:5,
+            function (samplingseed) {
+              A = readRDS(paste0("GENIE3.NMFnndsvd.rank",  r, ".",
+                                 tgtct,
+                                 ".samplingseed_", samplingseed,
+                                 ".A.rds"))
+                                 # ".permA.rds"))
+                                 # ".A.K_1.rds"))
+                                 # ".permA.K_1.rds"))
+                                 # ".A.K_30.rds"))
+                                 # ".permA.K_30.rds"))
+              B = readRDS(paste0("GENIE3.NMFnndsvd.rank",  r, ".",
+                                 tgtct,
+                                 ".samplingseed_", samplingseed,
+                                 ".B.rds"))
+                                 # ".permB.rds"))
+                                 # ".B.K_1.rds"))
+                                 # ".permB.K_1.rds"))
+                                 # ".B.K_30.rds"))
+                                 # ".permB.K_30.rds"))
+              data.frame(
+                Rank = r,
+                samplingseed = samplingseed,
+                Correlation = cor(as.numeric(A), as.numeric(B)), # use this
+                error = sum((A/sum(A) - B/sum(B))^2))
+            }))
+      }))
+datasmall$K = 30 # 1 23(unset) 30
+datasmall$K = factor(datasmall$K)
+datasmall$Rank = factor(datasmall$Rank)
+datasmall$type = "Permutation" # Raw Permutation
+
+# Manually combine datasmall's as data
+
+library(dplyr)
+library(ggplot2)
+data$type = factor(data$type, levels = c("Raw", "Permutation"))
+dataplot = data %>%
+  group_by(Rank, type) %>%
+  # group_by(K, type) %>%
+  summarize(Mean = mean(Correlation), SD = sd(Correlation),
+            .groups = "drop")
+ggplot(data = data,
+       aes(
+         x = Rank,
+         # x = K,
+         y = Correlation)) +
+  geom_point(size = 0.7) +
+  geom_crossbar(
+    data = dataplot,
+    aes(
+      x = Rank,
+      # x = K,
+      y = Mean,
+      ymin = Mean - SD,
+      ymax = Mean + SD)) +
+  ylim(0, 1) +
+  facet_grid(cols = vars(type))
+```
+
 ## Gene set enrichment analysis for genes belonging to factors (modules)
 
 Load `gslists` from `9_GSEA.Rmd`.
