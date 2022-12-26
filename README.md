@@ -71,6 +71,10 @@ Questions? Please submit to GitHub Issues or e-mail fumihiko AT takeuchi DOT nam
   * Fig.3A, Fig.4A, Fig.5A, Fig.6A
 * 10_GRN.Rmd >
   Multiple motifs-to-one gene analysis >
+  Hyperparameters for the discovery of factors (modules) of TF regulation
+  * Fig.S3
+* 10_GRN.Rmd >
+  Multiple motifs-to-one gene analysis >
   Inspect enriched gene sets
   * Fig.3B, Fig.4B, Fig.5B, Fig.6B
 * 10_GRN.Rmd >
