@@ -437,6 +437,7 @@ weightMatrix = weightMatrix - x
 weightMatrix[weightMatrix < 0] = 0
 
 plot(sort(rowMeans(weightMatrix)))
+# TODO change from 1e-4 to quantile(rowMeans(weightMatrix), 0.85)
 weightMatrix = weightMatrix[rowMeans(weightMatrix) > 1e-4, ] # arbitrary
 # stellate:    drops m167203 m168101 
 # endothelial: drops m167203
