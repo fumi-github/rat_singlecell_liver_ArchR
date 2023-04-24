@@ -1,0 +1,222 @@
+---
+title: "celloracle"
+output: html_notebook
+---
+
+# Compute and export Base-GRN
+
+```{r}
+library(dplyr)
+```
+
+```{r}
+proj6 = loadArchRProject("Save-Proj6/")
+```
+
+Compute co-accessibility
+
+```{r}
+proj6 = addCoAccessibility(
+  ArchRProj = proj6,
+  reducedDims = "myLSI4"
+)
+```
+
+peak1 --coaccessible-- peak2 
+
+```{r}
+cA = getCoAccessibility(
+  ArchRProj = proj6,
+  corCutOff = 0.8, # specified in celloracle
+  resolution = 1,
+  returnLoops = FALSE
+)
+
+peakSet = cA@metadata$peakSet
+
+cAwithself = cA[, c("queryHits", "subjectHits")]
+cAwithself = rbind(
+  cAwithself,
+  # self
+  data.frame(
+    queryHits   = 1:length(peakSet),
+    subjectHits = 1:length(peakSet)))
+colnames(cAwithself) = c("peak1", "peak2")
+```
+
+peak2 --colocated-- promoter
+
+```{r}
+# First identify TSS
+promoter = geneAnnotation$genes
+x = (promoter@strand == "+")
+end(promoter[x]) = start(promoter[x])
+x = (promoter@strand == "-")
+start(promoter[x]) = end(promoter[x])
+# Promoter as TSS plus/minus 1kb
+# http://dx.doi.org/10.1038/s41586-020-2559-3
+start(promoter) = start(promoter) - 1e3
+end(promoter) = end(promoter) + 1e3
+width(promoter) = 2001
+
+overlaps_peak_promoter =
+  as.data.frame(
+    GenomicRanges::findOverlaps(
+      peakSet,
+      promoter,
+      ignore.strand = TRUE))
+colnames(overlaps_peak_promoter) =
+  c("peak2", "promoter")
+```
+
+peak1 --coaccessible-- peak2 --colocated-- promoter
+
+```{r}
+data = dplyr::inner_join(
+  as.data.frame(cAwithself),
+  overlaps_peak_promoter,
+  multiple = "all")
+data = data %>%
+  dplyr::select(-peak2) %>%
+  dplyr::distinct() %>%
+  dplyr::arrange(peak1, promoter)
+```
+
+For each peak1, attach TFs with matching binding motif
+
+```{r}
+# The following computation took 5.8 mins
+proj6 = addMotifAnnotations(
+  ArchRProj = proj6,
+  motifSet = "cisbp",
+  species = "Mus musculus",
+  name = "Motif")
+
+mat = readRDS(proj6@peakAnnotation@listData$Motif$Matches)
+mat = assay(mat)
+mat = mat * 1 # convert from logical to 0/1
+mat = mat[data$peak1, ]
+
+# Convert colnames to rat gene symbol
+colnames(mat) = sub("_.*", "", colnames(mat)) # Tcfap2a_1 -> Tcfap2a
+attach("~/human/publicrat/homologs/mouse_to_rat_homologs.Rda")
+x = mouse_to_rat_homologs$RGD.symbol[
+  match(
+    colnames(mat),
+    mouse_to_rat_homologs$NCBI.gene..formerly.Entrezgene..accession)]
+colnames(mat) = x
+
+idx = which((! is.na(colnames(mat))) & (colnames(mat) != ""))
+mat = mat[, idx]
+idx = which(! duplicated(colnames(mat)))
+mat = mat[, idx]
+```
+
+Output
+
+```{r}
+# Convert peak1 to chr/pos
+x = peakSet[data$peak1]
+peak_id = paste(seqnames(x), start(x), end(x), sep="_")
+# Convert promoter to genename
+gene_short_name = (promoter[data$promoter])$gene_id
+output =
+  data.frame(
+    peak_id = peak_id,
+    gene_short_name = gene_short_name)
+output = cbind(
+  output,
+  as.data.frame(as.matrix(mat)))
+write.table(
+  output,
+  file = "celloracle_base_GRN.txt",
+  sep = "\t",
+  row.names = FALSE,
+  quote = FALSE)
+```
+
+# Export GeneScoreMatrix
+
+```{r}
+proj6 = loadArchRProject("Save-Proj6/")
+```
+
+GeneScoreMatrix in normalized log2 scale
+
+```{r}
+mat = readRDS("matGeneScoreSamplebatchcorrected.rds")
+```
+
+GeneScoreMatrix in count scale
+
+```{r}
+saver.all = readRDS("GeneScoreMatrix.geneScaleFactor_1.scaleTo_skipped.Linnorm.saver.rds")
+matsaver = saver.all$estimate
+rm(saver.all)
+
+# recover gene names
+x = getMatrixFromProject(proj6, useMatrix = "GeneScoreMatrix2")
+identical(dim(matsaver), dim(x))
+identical(colnames(matsaver), colnames(x))
+rownames(matsaver) = rowData(x)$name
+rm(x)
+
+# keep QC-passed genes
+identical(colnames(mat), colnames(matsaver))
+x = match(rownames(mat), rownames(matsaver))
+matsaver = matsaver[x, ]
+identical(rownames(mat), rownames(matsaver))
+```
+
+celloracle uses 2000-3000 highly variable genes.
+For TF genes, we keep half of the highyl variable ones.
+
+```{r}
+sds = rowSds(assay(mat))
+TFs = colnames(
+  read.table("celloracle_base_GRN.txt", header = TRUE))[-c(1:2)]
+isTF = rownames(mat) %in% TFs
+rm(TFs)
+
+threshold = sort(sds[! isTF], decreasing = TRUE)[2000]
+x1 = (! isTF) & (sds >= threshold)
+threshold = sort(sds[isTF], decreasing = TRUE)[round(sum(isTF) / 2)]
+x2 = (isTF) & (sds >= threshold)
+
+mat = mat[x1 | x2, ]
+matsaver = matsaver[x1 | x2, ]
+```
+
+Create AnnData object
+
+```{r}
+library(anndata)
+
+X_pca = proj6@reducedDims[["myLSI4"]]$matDR
+identical(rownames(X_pca), proj6$cellNames)
+
+ad = AnnData(
+  X = t(assay(mat)),
+  obs = data.frame(
+    louvain       = factor(proj6$Clusters4res06),
+    louvain_annot = factor(proj6$Clusters4BTmyelo),
+    cell_type     = factor(proj6$Clusters4BTmyelo),
+    row.names     = proj6$cellNames
+  ),
+  var = data.frame(
+    gene_ids  = rownames(mat),
+    row.names = rownames(mat)
+  ),
+  layers = list(
+    raw_count = t(round(matsaver))
+  ),
+  obsm = list(
+    X_pca = X_pca
+  )
+)
+
+write_h5ad(
+  ad,
+  "celloracle_scRNA-seq.h5ad",
+  compression = "gzip")
+```
