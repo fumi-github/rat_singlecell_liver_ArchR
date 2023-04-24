@@ -450,6 +450,25 @@ weightMatrix = weightMatrix[, colMaxs(weightMatrix) > 0]
 plot(hclust(dist(weightMatrix)))
 ```
 
+## Import regulatory motifs computed using CellOracle
+
+```{r}
+weightMatrix = read.csv(
+  paste0("../celloracle/raw_GRN_for_",  tgtct, ".csv"),
+  header = TRUE)
+weightMatrix = weightMatrix[, c("source", "target", "coef_abs")]
+weightMatrix = tidyr::pivot_wider(
+  weightMatrix,
+  names_from = target,
+  values_from = coef_abs)
+weightMatrix = as.data.frame(weightMatrix)
+row.names(weightMatrix) = weightMatrix$source
+weightMatrix = as.matrix(weightMatrix[, -1])
+weightMatrix[is.na(weightMatrix)] = 0
+rownames(weightMatrix) = paste0("Motif.", rownames(weightMatrix))
+colnames(weightMatrix) = paste0("Gene.", colnames(weightMatrix))
+```
+
 ## Nonnegative matrix factorization of regulator-regulatee matrix
 
 To choose the optimal value of r, first try 1; if not clear try 2.
