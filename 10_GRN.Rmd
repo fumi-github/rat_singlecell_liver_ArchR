@@ -570,6 +570,8 @@ res = nmf(weightMatrix,
           .opt = 'vP4')
 summary(res, target = weightMatrix)
 # saveRDS(res, file = paste0("GENIE3.NMF.rank", r, ".", tgtct, ".rds"))
+# saveRDS(res, file = paste0("celloracle.NMF.rank", r, ".", tgtct, ".rds"))
+# saveRDS(res, file = paste0("scenicplus.NMF.rank", r, ".", tgtct, ".rds"))
 res = readRDS(paste0("GENIE3.NMF.rank", r, ".", tgtct, ".rds"))
 
 basismap(res)
@@ -623,7 +625,7 @@ topGenelist = lapply(
   })
 topGene = union(do.call(c, topGenelist), c())
 
-weightMatrix = readRDS(paste0("GENIE3.",  tgtct, ".rds"))
+# weightMatrix = readRDS(paste0("GENIE3.",  tgtct, ".rds"))
 x = t(weightMatrix[topMotif, topGene])
 rownames(x) = sub("^Gene.", "", rownames(x))
 colnames(x) = toupper(sub("^Motif.", "", colnames(x)))
@@ -906,6 +908,8 @@ result =
         })
     })
 # saveRDS(result, file = paste0("GENIE3.NMF.rank", r, ".", tgtct, ".GSEA.rds"))
+# saveRDS(result, file = paste0("celloracle.NMF.rank", r, ".", tgtct, ".GSEA.rds"))
+# saveRDS(result, file = paste0("scenicplus.NMF.rank", r, ".", tgtct, ".GSEA.rds"))
 result = readRDS(paste0("GENIE3.NMF.rank", r, ".", tgtct, ".GSEA.rds"))
 ```
 
