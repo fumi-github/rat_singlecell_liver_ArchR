@@ -1048,8 +1048,8 @@ p1 =
   scale_fill_manual(values = c("gray50", "black")) +
   guides(fill = "none") +
   facet_grid(rows = vars(factor)) +
-  theme(axis.text.x = element_text(angle = 90,
-                                   hjust = 1,
+  theme(axis.text.x = element_text(angle = -90,
+                                   hjust = 0,
                                    vjust = 0.5,
                                    size = rel(0.4))) +
   labs(title = tgtct,
