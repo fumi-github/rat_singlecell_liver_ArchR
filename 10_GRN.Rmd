@@ -985,6 +985,7 @@ dbnamegsname = rbind(
   data.frame(dbname = 'GOBP', gsname = 'GOBP_MYELOID_LEUKOCYTE_ACTIVATION%%M12762'),
   data.frame(dbname = 'KEGG', gsname = 'KEGG_HEMATOPOIETIC_CELL_LINEAGE%%M6856'), # *
   data.frame(dbname = 'WIKIPATHWAYS', gsname = 'WP_ONCOSTATIN_M_SIGNALING_PATHWAY%%M39562'),
+  data.frame(dbname = 'REACTOME', gsname = 'REACTOME_INNATE_IMMUNE_SYSTEM%%M1036'), # scenicplus
   
   data.frame(dbname = 'KEGG', gsname = 'KEGG_APOPTOSIS%%M8492'),
   data.frame(dbname = 'H', gsname = 'HALLMARK_APOPTOSIS%%M5902'), # *
@@ -1003,7 +1004,9 @@ dbnamegsname = rbind(
   data.frame(dbname = 'H', gsname = 'HALLMARK_PI3K_AKT_MTOR_SIGNALING%%M5923'), # *
 
   data.frame(dbname = 'WIKIPATHWAYS', gsname = 'WP_FARNESOID_X_RECEPTOR_PATHWAY%%M39411'), # *
-  data.frame(dbname = 'GOBP', gsname = 'GOBP_GLUTAMINE_FAMILY_AMINO_ACID_BIOSYNTHETIC_PROCESS%%M10295') # *
+  data.frame(dbname = 'GOBP', gsname = 'GOBP_GLUTAMINE_FAMILY_AMINO_ACID_BIOSYNTHETIC_PROCESS%%M10295'), # *
+  
+  data.frame(dbname = 'GOBP', gsname = 'GOBP_ADHERENS_JUNCTION_MAINTENANCE%%M23262') # scenicplus
 )
 ```
 
