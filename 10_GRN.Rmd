@@ -469,6 +469,64 @@ rownames(weightMatrix) = paste0("Motif.", rownames(weightMatrix))
 colnames(weightMatrix) = paste0("Gene.", colnames(weightMatrix))
 ```
 
+## Import regulatory motifs computed using scenicplus
+
+```{r}
+eRegulon_AUC = read.csv(
+  "../scenicplus/eRegulon_AUC_filtered.Gene_based.csv",
+  header = FALSE)
+eRegulon_names = as.character(eRegulon_AUC[1, -1])
+eRegulon_AUC = eRegulon_AUC[-1, ]
+eRegulon_AUC$V1 = sub("___cisTopic", "", eRegulon_AUC$V1)
+eRegulon_AUC = eRegulon_AUC[
+  eRegulon_AUC$V1 %in%
+    proj6$cellNames[proj6$Clusters4BTmyelo == tgtct],
+]
+eRegulon_AUC = eRegulon_AUC[, -1]
+eRegulon_AUC = matrix(as.numeric(as.matrix(eRegulon_AUC)),
+                      ncol = ncol(eRegulon_AUC))
+eRegulon_AUC = colMeans(eRegulon_AUC)
+
+eRegulon_signatures = read.csv(
+  "../scenicplus/eRegulon_signatures_filtered.Gene_based.csv",
+  header = FALSE)
+identical(eRegulon_names, eRegulon_signatures$V1)
+eRegulon_signatures = eRegulon_signatures[, -1]
+genes = sort(setdiff(as.character(as.matrix(eRegulon_signatures)), ""))
+
+weightMatrix = matrix(
+  0,
+  nrow = length(eRegulon_names),
+  ncol = length(genes))
+for (i in 1:length(eRegulon_names)) {
+  weightMatrix[i, ] = 1 * (genes %in% eRegulon_signatures[i, ])
+}
+weightMatrix = diag(eRegulon_AUC) %*% weightMatrix
+# Atf2_+_(44g) Atf2_-_(10g)
+rownames(weightMatrix) = paste0("Motif.", eRegulon_names)
+colnames(weightMatrix) = paste0("Gene.", genes)
+
+weightMatrix = weightMatrix[rowMaxs(weightMatrix) > 0, ]
+weightMatrix = weightMatrix[, colMaxs(weightMatrix) > 0]
+
+rm(eRegulon_AUC, eRegulon_names, eRegulon_signatures, genes)
+```
+
+Clean noise.
+
+```{r}
+plot(quantile(weightMatrix, seq(0, 1, 0.01)))
+plot(quantile(weightMatrix, seq(1 - 1e-3, 1, 1e-5)))
+plot(quantile(weightMatrix, seq(1 - 1e-4, 1, 1e-6)))
+
+plot(sort(log10(rowMeans(weightMatrix))))
+x = quantile(rowMeans(weightMatrix), 0.85)
+weightMatrix = weightMatrix[rowMeans(weightMatrix) > x, ] # arbitrary
+
+# zero columns cause error in nmf
+weightMatrix = weightMatrix[, colMaxs(weightMatrix) > 0]
+```
+
 ## Nonnegative matrix factorization of regulator-regulatee matrix
 
 To choose the optimal value of r, first try 1; if not clear try 2.
