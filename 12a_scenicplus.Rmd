@@ -1,0 +1,128 @@
+---
+title: "scenicplus"
+output: html_notebook
+---
+
+# Export PeakMatrix
+
+```{r}
+library(Matrix)
+```
+
+```{r}
+proj6 = loadArchRProject("Save-Proj6/")
+```
+
+Load peak matrix
+
+```{r}
+mat =
+  getMatrixFromProject(
+    proj6,
+    useMatrix = "PeakMatrix",
+    binarize = TRUE)
+```
+
+QC
+
+```{r}
+rowSm <- Matrix::rowSums(assay(mat) > 0)
+
+# Clean up zero/singleton rows
+idx <- which(rowSm > 1)
+mat <- mat[idx, ]
+rowSm <- rowSm[idx]
+
+# Exclude a small number of ~100% inserted windows
+idx <- which(rowSm/ncol(mat) < 0.85)
+mat <- mat[idx, ]
+rowSm <- rowSm[idx]
+```
+
+Export
+
+```{r}
+x = mat@rowRanges
+x = paste(seqnames(x), ":", start(x), "-", end(x),
+          sep = "")
+rownames(mat) = x
+
+writeMM(assay(mat), "scenicplus_PeakMatrix.mtx")
+write.table(rownames(mat), "scenicplus_PeakMatrix.row.txt",
+            row.names = FALSE,
+            col.names = FALSE,
+            quote = FALSE)
+write.table(colnames(mat), "scenicplus_PeakMatrix.col.txt",
+            row.names = FALSE,
+            col.names = FALSE,
+            quote = FALSE)
+```
+
+# Export GeneScoreMatrix
+
+```{r}
+proj6 = loadArchRProject("Save-Proj6/")
+```
+
+GeneScoreMatrix in normalized log2 scale
+
+```{r}
+mat = readRDS("matGeneScoreSamplebatchcorrected.rds")
+```
+
+GeneScoreMatrix in count scale
+
+```{r}
+saver.all = readRDS("GeneScoreMatrix.geneScaleFactor_1.scaleTo_skipped.Linnorm.saver.rds")
+matsaver = saver.all$estimate
+rm(saver.all)
+
+# recover gene names
+x = getMatrixFromProject(proj6, useMatrix = "GeneScoreMatrix2")
+identical(dim(matsaver), dim(x))
+identical(colnames(matsaver), colnames(x))
+rownames(matsaver) = rowData(x)$name
+rm(x)
+
+# keep QC-passed genes
+identical(colnames(mat), colnames(matsaver))
+x = match(rownames(mat), rownames(matsaver))
+matsaver = matsaver[x, ]
+identical(rownames(mat), rownames(matsaver))
+```
+
+Create AnnData object
+
+```{r}
+library(anndata)
+
+X_pca = proj6@reducedDims[["myLSI4"]]$matDR
+identical(rownames(X_pca), proj6$cellNames)
+
+X_umap = as.matrix(proj6@embeddings@listData$UMAP$df)
+identical(rownames(X_umap), proj6$cellNames)
+
+ad = AnnData(
+  X = t(round(matsaver)),
+  obs = data.frame(
+    sample_id     = factor(proj6$Sample),
+    louvain       = factor(proj6$Clusters4res06),
+    louvain_annot = factor(proj6$Clusters4BTmyelo),
+    celltype      = factor(proj6$Clusters4BTmyelo),
+    row.names     = proj6$cellNames
+  ),
+  var = data.frame(
+    gene_ids  = rownames(mat),
+    row.names = rownames(mat)
+  ),
+  obsm = list(
+    X_pca = X_pca,
+    X_umap = X_umap
+  )
+)
+
+write_h5ad(
+  ad,
+  "scenicplus_scRNA.h5ad",
+  compression = "gzip")
+```
