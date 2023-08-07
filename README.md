@@ -1,6 +1,6 @@
 # rat_singlecell_liver_ArchR
 
-Code for the manuscript "Single-nucleus ATAC-seq elucidates major modules of gene regulation in the development of non-alcoholic fatty liver disease".
+Branch version1 is the code for the article "Gene-regulation modules in nonalcoholic fatty liver disease revealed by single-nucleus ATAC-seq."
 
 Files are in R Markdown/Notebook (.Rmd) format.
 They are named 1_, 2_, ... in the order of execution.
@@ -90,4 +90,7 @@ Questions? Please submit to GitHub Issues or e-mail fumihiko AT takeuchi DOT nam
 
 Please cite
 
-[Takeuchi, F. et al., Single-nucleus ATAC-seq elucidates major modules of gene regulation in the development of non-alcoholic fatty liver disease, DOI: 10.1101/2022.07.12.499681](https://doi.org/10.1101/2022.07.12.499681)
+[Takeuchi, F. et al., Gene-regulation modules in nonalcoholic fatty liver disease revealed by single-nucleus ATAC-seq, DOI: 10.26508/lsa.202301988](https://doi.org/10.26508/lsa.202301988)
+
+[Takeuchi, F. et al., Single-nucleus ATAC-seq elucidates major modules of gene regulation in the development of non-alcoholic fatty liver disease, DOI: 10.1101/2022.07.12.499681](https://doi.org/10.1101/2022.07.12.499681) (old manuscripts)
+
